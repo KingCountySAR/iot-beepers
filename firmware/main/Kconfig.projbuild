@@ -1,0 +1,82 @@
+menu "SAR Notifier"
+
+    config NOTIFIER_DEFAULT_SERVER_URL
+        string "Default server URL"
+        default "https://notifier.example.org"
+        help
+            Pre-filled in the setup portal. Members can change it there.
+
+    config NOTIFIER_HW_REV
+        string "Hardware revision reported to the server"
+        default "devkit"
+
+    menu "Pins"
+        config NOTIFIER_LED_GPIO
+            int "Status LED GPIO"
+            default 8
+            help
+                Default is the on-board LED of an ESP32-C3 SuperMini.
+
+        config NOTIFIER_LED_ACTIVE_LOW
+            bool "LED is active low"
+            default y
+
+        config NOTIFIER_BUTTON_GPIO
+            int "Button GPIO (active low, internal pull-up)"
+            default 9
+            help
+                Default is the BOOT button, so a bare dev board works.
+
+        config NOTIFIER_SWITCH_GPIO
+            int "Arm/quiet switch GPIO (-1 if none)"
+            default 4
+            help
+                Internal pull-up. High (open) = armed, low (closed to GND) = quiet.
+                With nothing connected the device is always armed.
+
+        config NOTIFIER_ALARM_GPIO
+            int "Alarm output GPIO"
+            default 5
+
+        config NOTIFIER_ALARM_GPIO_B
+            int "Complementary alarm GPIO for bridge drive (-1 if none)"
+            default -1
+            help
+                With a bare piezo disc driven through an H-bridge, set this to the second
+                bridge input. It gets the inverted square wave, doubling the voltage across
+                the piezo (~6 dB louder).
+    endmenu
+
+    choice NOTIFIER_ALARM_DRIVE
+        prompt "Alarm drive"
+        default NOTIFIER_ALARM_DRIVE_PWM
+        config NOTIFIER_ALARM_DRIVE_PWM
+            bool "Square wave (passive piezo transducer)"
+        config NOTIFIER_ALARM_DRIVE_DC
+            bool "On/off (self-oscillating buzzer or siren module)"
+    endchoice
+
+    config NOTIFIER_ALARM_FREQ_HZ
+        int "Piezo drive frequency (Hz)"
+        depends on NOTIFIER_ALARM_DRIVE_PWM
+        default 4000
+        help
+            Set this to the piezo's resonant frequency; output drops off sharply away from it.
+
+    config NOTIFIER_ALARM_SECONDS
+        int "How long a page sounds before switching to reminder chirps"
+        default 60
+
+    config NOTIFIER_REMINDER_MINUTES
+        int "Reminder chirps for an unacknowledged page continue for (minutes)"
+        default 10
+
+    config NOTIFIER_TROUBLE_CHIRP_MINUTES
+        int "Chirp when disconnected for this many minutes (0 = never)"
+        default 30
+        help
+            Like a smoke detector's low-battery chirp: a silent, disconnected pager is the
+            failure we most want members to notice. Only chirps while armed, then repeats
+            every 10 minutes until reconnected.
+
+endmenu

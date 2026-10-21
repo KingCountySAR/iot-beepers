@@ -1,0 +1,38 @@
+import { z } from 'zod';
+
+const minutes = (def: number) => z.coerce.number().positive().default(def);
+
+const Env = z.object({
+  PORT: z.coerce.number().int().default(8080),
+  /** Externally reachable base URL. Devices derive the MQTT and OTA URLs from this. */
+  PUBLIC_URL: z.url().default('http://localhost:8080'),
+  /** Postgres connection string. When unset, an embedded PGlite database is used (dev only). */
+  DATABASE_URL: z.string().optional(),
+  /** Directory for the embedded PGlite database. Use "memory://" for an ephemeral DB. */
+  PGLITE_DIR: z.string().default('./data/pglite'),
+  /** Bootstrap admin account, created on startup if no users exist. */
+  ADMIN_USERNAME: z.string().default('admin'),
+  ADMIN_PASSWORD: z.string().optional(),
+  /** Bearer token for POST /api/ingest/page. Ingest is disabled when unset. */
+  INGEST_TOKEN: z.string().optional(),
+  /** Pages older than this are delivered silently (LED only) instead of sounding the alarm. */
+  ALARM_WINDOW_MIN: minutes(10),
+  /** Default lifetime of a page; expired pages are not replayed to reconnecting devices. */
+  PAGE_TTL_MIN: minutes(120),
+  CLAIM_CODE_TTL_MIN: minutes(30),
+  /** Don't re-send an OTA command to the same device more often than this. */
+  OTA_RETRY_MIN: minutes(60),
+  /** Directory of the built web UI to serve. */
+  WEB_DIST: z.string().default('../web/dist'),
+});
+
+export type Config = z.infer<typeof Env>;
+
+export function loadConfig(env: Record<string, string | undefined> = process.env): Config {
+  const cfg = Env.parse(env);
+  return { ...cfg, PUBLIC_URL: cfg.PUBLIC_URL.replace(/\/+$/, '') };
+}
+
+export function mqttUrl(cfg: Config): string {
+  return cfg.PUBLIC_URL.replace(/^http/, 'ws') + '/mqtt';
+}

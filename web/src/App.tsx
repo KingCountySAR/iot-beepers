@@ -1,0 +1,88 @@
+import { createContext, useContext, useEffect, useState } from 'react';
+import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router';
+import { api, type User } from './api';
+import { AccountPage } from './pages/Account';
+import { ChannelsPage } from './pages/Channels';
+import { DashboardPage } from './pages/Dashboard';
+import { DevicePage } from './pages/Device';
+import { FirmwarePage } from './pages/Firmware';
+import { LoginPage } from './pages/Login';
+import { PagePage, PagesPage } from './pages/Pages';
+import { PairPage } from './pages/Pair';
+import { UsersPage } from './pages/Users';
+
+interface AuthState {
+  user: User | null;
+  setUser: (u: User | null) => void;
+}
+
+const AuthContext = createContext<AuthState>({ user: null, setUser: () => {} });
+export const useAuth = () => useContext(AuthContext);
+
+export function App() {
+  const [user, setUser] = useState<User | null | undefined>(undefined);
+  const location = useLocation();
+
+  useEffect(() => {
+    api<User | null>('GET', '/auth/me').then(setUser, () => setUser(null));
+  }, []);
+
+  if (user === undefined) return null;
+
+  if (!user) {
+    return (
+      <AuthContext.Provider value={{ user, setUser }}>
+        <LoginPage next={location.pathname + location.search} />
+      </AuthContext.Provider>
+    );
+  }
+
+  const logout = async () => {
+    await api('POST', '/auth/logout');
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, setUser }}>
+      <header className="topbar">
+        <strong className="brand">SAR Notifier</strong>
+        <nav>
+          <NavLink to="/" end>
+            {user.isAdmin ? 'Devices' : 'My pagers'}
+          </NavLink>
+          <NavLink to="/pages">Pages</NavLink>
+          {user.isAdmin && (
+            <>
+              <NavLink to="/channels">Channels</NavLink>
+              <NavLink to="/firmware">Firmware</NavLink>
+              <NavLink to="/users">Users</NavLink>
+            </>
+          )}
+        </nav>
+        <span className="spacer" />
+        <NavLink to="/account">{user.displayName}</NavLink>
+        <button className="link" onClick={logout}>
+          Log out
+        </button>
+      </header>
+      <main>
+        <Routes>
+          <Route path="/" element={<DashboardPage />} />
+          <Route path="/pair" element={<PairPage />} />
+          <Route path="/devices/:id" element={<DevicePage />} />
+          <Route path="/pages" element={<PagesPage />} />
+          <Route path="/pages/:id" element={<PagePage />} />
+          <Route path="/account" element={<AccountPage />} />
+          {user.isAdmin && (
+            <>
+              <Route path="/channels" element={<ChannelsPage />} />
+              <Route path="/firmware" element={<FirmwarePage />} />
+              <Route path="/users" element={<UsersPage />} />
+            </>
+          )}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </main>
+    </AuthContext.Provider>
+  );
+}

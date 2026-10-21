@@ -1,0 +1,12 @@
+node_modules/
+dist/
+data/
+*.log
+.env
+
+# ESP-IDF
+firmware/build/
+firmware/managed_components/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/dependencies.lock

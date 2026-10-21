@@ -1,0 +1,126 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { connectDevice, httpClient, startServer, until } from './harness.js';
+
+const DEV = 'a1b2c3d4e5f6';
+const SECRET = 'f'.repeat(64);
+
+describe('device lifecycle', () => {
+  let srv: Awaited<ReturnType<typeof startServer>>;
+  let admin: ReturnType<typeof httpClient>;
+  let channelId: number;
+
+  beforeAll(async () => {
+    srv = await startServer();
+    admin = httpClient(srv.url);
+    expect((await admin('POST', '/api/auth/login', { username: 'admin', password: 'admin-pass' })).status).toBe(200);
+    const ch = await admin('POST', '/api/channels', { slug: 'callout', name: 'Callouts' });
+    expect(ch.status).toBe(201);
+    channelId = ch.body.id;
+  });
+
+  afterAll(() => srv.stop());
+
+  it('rejects unauthenticated API calls', async () => {
+    expect((await httpClient(srv.url)('GET', '/api/devices')).status).toBe(401);
+  });
+
+  it('registers, pairs and configures a device', async () => {
+    const reg = await admin('POST', '/api/device/register', { id: DEV, secret: SECRET, fw: '0.1.0' });
+    expect(reg.status).toBe(200);
+    expect(reg.body.claimed).toBe(false);
+    expect(reg.body.claimCode).toMatch(/^[A-Z2-9]{6}$/);
+    expect(reg.body.claimUrl).toBe(`${srv.url}/pair?code=${reg.body.claimCode}`);
+    expect(reg.body.mqttUrl).toBe(srv.url.replace('http', 'ws') + '/mqtt');
+
+    // Registering again returns the same code.
+    const again = await admin('POST', '/api/device/register', { id: DEV, secret: SECRET });
+    expect(again.body.claimCode).toBe(reg.body.claimCode);
+
+    expect((await admin('POST', '/api/pair', { code: 'ZZZZZZ' })).status).toBe(404);
+    const pair = await admin('POST', '/api/pair', { code: reg.body.claimCode.toLowerCase(), name: 'Bedside' });
+    expect(pair.status).toBe(200);
+
+    // A different secret can't hijack a claimed device.
+    const hijack = await admin('POST', '/api/device/register', { id: DEV, secret: 'e'.repeat(64) });
+    expect(hijack.status).toBe(409);
+
+    const claimed = await admin('POST', '/api/device/register', { id: DEV, secret: SECRET });
+    expect(claimed.body).toMatchObject({ claimed: true, name: 'Bedside', owner: 'Administrator' });
+
+    expect((await admin('PATCH', `/api/devices/${DEV}`, { channelIds: [channelId] })).status).toBe(200);
+  });
+
+  it('refuses MQTT with a bad secret', async () => {
+    await expect(connectDevice(srv.url, DEV, 'wrong-secret-wrong-secret-wrong-secret')).rejects.toThrow();
+  });
+
+  it('delivers pages live and records receipt and ack', async () => {
+    const dev = await connectDevice(srv.url, DEV, SECRET);
+    await dev.hello({ rssi: -60, ip: '192.168.1.50' });
+    expect(await dev.next('config')).toEqual({ claimed: true, name: 'Bedside', channels: ['callout'] });
+
+    const list = await admin('GET', '/api/devices');
+    expect(list.body[0]).toMatchObject({ id: DEV, online: true, rssi: -60, fwVersion: '0.1.0' });
+
+    const sent = await admin('POST', '/api/pages', { channelId, title: 'Callout', body: 'Lost hiker, Mt Si. Respond.' });
+    expect(sent.body.targets).toBe(1);
+    const page = await dev.next('page');
+    expect(page).toMatchObject({ id: sent.body.id, ch: 'callout', title: 'Callout', alarm: true });
+
+    await dev.send('ack', { page: page.id, state: 'received' });
+    await dev.send('ack', { page: page.id, state: 'acked' });
+    await until(async () => (await admin('GET', `/api/pages/${page.id}`)).body.deliveries[0].ackedAt !== null);
+
+    const pages = await admin('GET', '/api/pages');
+    expect(pages.body[0]).toMatchObject({ targets: 1, received: 1, acked: 1 });
+
+    // Devices may not publish onto another device's topics; the broker drops the client.
+    const closed = new Promise<void>((r) => dev.client.once('close', () => r()));
+    dev.client.publish('dev/000000000000/ack', JSON.stringify({ page: page.id, state: 'acked' }), { qos: 1 });
+    await closed;
+    await until(async () => (await admin('GET', '/api/devices')).body[0].online === false);
+  });
+
+  it('replays missed pages on reconnect without re-alarming stale ones', async () => {
+    const sent = await admin('POST', '/api/pages', { channelId, body: 'Sent while offline' });
+    const dev = await connectDevice(srv.url, DEV, SECRET);
+    await dev.hello();
+    await dev.next('config');
+    const page = await dev.next('page');
+    expect(page.id).toBe(sent.body.id);
+    expect(page.alarm).toBe(true); // still within the alarm window
+    await dev.send('ack', { page: page.id, state: 'received' });
+    await until(async () => (await admin('GET', `/api/pages/${page.id}`)).body.deliveries[0].receivedAt !== null);
+    await dev.close();
+
+    // Received pages aren't replayed again.
+    const dev2 = await connectDevice(srv.url, DEV, SECRET);
+    await dev2.hello();
+    await dev2.next('config');
+    await expect(dev2.next('page', 300)).rejects.toThrow('timed out');
+    await dev2.close();
+  });
+
+  it('accepts ingest with the bearer token only', async () => {
+    const anon = httpClient(srv.url);
+    expect((await anon('POST', '/api/ingest/page', { channel: 'callout', body: 'x' })).status).toBe(401);
+    const res = await fetch(`${srv.url}/api/ingest/page`, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ingest-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ channel: 'callout', body: 'From the callout system' }),
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ targets: 1 });
+  });
+
+  it('members only see their own devices', async () => {
+    expect(
+      (await admin('POST', '/api/users', { username: 'sam', displayName: 'Sam', password: 'password1' })).status,
+    ).toBe(201);
+    const sam = httpClient(srv.url);
+    await sam('POST', '/api/auth/login', { username: 'sam', password: 'password1' });
+    expect((await sam('GET', '/api/devices')).body).toEqual([]);
+    expect((await sam('GET', `/api/devices/${DEV}`)).status).toBe(404);
+    expect((await sam('POST', '/api/pages', { channelId, body: 'x' })).status).toBe(403);
+  });
+});

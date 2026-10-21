@@ -1,0 +1,31 @@
+CONFIG_IDF_TARGET="esp32c3"
+
+# Flash / partitions
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# OTA: a new image must prove it can reach the server before it is kept.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# TLS: trust the standard public CAs (Let's Encrypt etc.)
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y
+CONFIG_MBEDTLS_CERTIFICATE_BUNDLE_DEFAULT_FULL=y
+
+# MQTT over WebSocket
+CONFIG_MQTT_TRANSPORT_WEBSOCKET=y
+CONFIG_MQTT_TRANSPORT_WEBSOCKET_SECURE=y
+
+# Captive portal serves a few handlers with longer URIs/headers from phone browsers.
+CONFIG_HTTPD_MAX_REQ_HDR_LEN=1024
+CONFIG_HTTPD_MAX_URI_LEN=1024
+
+# Keep crash info for field debugging.
+CONFIG_ESP_COREDUMP_ENABLE_TO_FLASH=y
+CONFIG_ESP_COREDUMP_DATA_FORMAT_ELF=y
+
+# Restart (rather than hang) on a stuck task.
+CONFIG_ESP_TASK_WDT_PANIC=y
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=6144
+
+CONFIG_LOG_DEFAULT_LEVEL_INFO=y
