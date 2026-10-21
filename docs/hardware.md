@@ -1,64 +1,62 @@
 # Hardware
 
 ## Target board
-The default target is an **ESP32-C3** board; the defaults assume the common "ESP32-C3 SuperMini" (about $3). Any ESP32-C3 or S3 dev board works: run `idf.py set-target esp32s3` and set the pins under `idf.py menuconfig → SAR Notifier → Pins`.
+The target is a **Seeed XIAO ESP32C3** on the rev 1 carrier board. The schematic and BOM are in [`hardware/rev1`](../hardware/rev1/README.md). For breadboard prototyping there's an ESP32 DevKit V1 profile; see [`firmware/README.md`](../firmware/README.md#prototyping-on-an-esp32-devkit-v1). Other ESP32-C3/S3 boards work too: set the pins under `idf.py menuconfig → SAR Notifier → Pins` (and run `idf.py set-target esp32s3` for an S3).
 
-The defaults work on a bare dev board with nothing attached:
+| Function | XIAO pin | GPIO | Notes |
+|---|---|---|---|
+| Alarm | D1 | 3 | Gate of the low-side MOSFET; square wave or on/off |
+| Button | D2 | 4 | Active low, internal pull-up |
+| Button (alternate) | BOOT | 9 | The XIAO's own BOOT button does the same thing, so a bare board is usable. Holding it *during reset* enters the ROM bootloader |
+| Arm/quiet switch | D3 | 5 | Open = armed, closed to GND = quiet. Unconnected = always armed |
+| Green status LED | D6 | 21 | |
+| Red alert LED | D10 | 10 | The tall one, visible across a room |
 
-| Function | Default GPIO | Notes |
-|---|---|---|
-| Status LED | 8 (active low) | SuperMini on-board LED |
-| Button | 9 (active low, internal pull-up) | The BOOT button. It is a strapping pin, so holding it *during reset* enters the ROM bootloader |
-| Arm/quiet switch | 4 (internal pull-up) | Open = armed, closed to GND = quiet. Unconnected = always armed |
-| Alarm | 5 | PWM square wave, or on/off (see below) |
-| Alarm B | -1 (unused) | Complementary output for bridge drive |
-
-The C3's strapping pins are GPIO 2, 8 and 9. Don't put anything on the daughter board that pulls them low at power-up.
+The XIAO has no user LED of its own; a bare board just has no lights. The C3's strapping pins are GPIO 2, 8 and 9, so the carrier board leaves them alone.
 
 ## Behaviour
 
-### LED
+### LEDs
+Green shows status; red means something needs your attention.
+
 | Pattern | Meaning |
 |---|---|
-| Mostly on, brief off every 2 s | Setup mode: join the `SAR-Pager-xxxx` Wi-Fi network |
-| Fast blink (4/s) | Connecting (first time since boot) |
-| 1 s on / 1 s off | Lost connection to the server |
-| Double blip every 2 s | Connected but not paired to a member |
-| Short blip every 5 s | Connected and listening ✅ |
-| Rapid flash | Unacknowledged page: press the button |
-| Triple blip | Firmware update in progress |
-| Very rapid flash for 10 s | "Identify", sent from the web UI |
+| Green mostly on, brief off every 2 s | Setup mode: join the `SAR-Pager-xxxx` Wi-Fi network |
+| Green fast blink (4/s) | Connecting (first time since boot) |
+| Green double blip every 2 s | Connected but not paired to a member |
+| Green short blip every 5 s | Connected and listening ✅ |
+| Green triple blip | Firmware update in progress |
+| **Red flashing** | Unacknowledged page: press the button |
+| Red blip every 3 s | Lost connection to the server |
+| Green/red alternating for 10 s | "Identify", sent from the web UI |
 
 ### Button
 | Press | Action |
 |---|---|
 | Short | Acknowledge pages and silence the alarm. With no pages waiting, it chirps once if everything is OK and twice if not connected or not paired |
-| Hold 5 s (LED goes solid), release | Setup mode: change Wi-Fi, or get a new pairing code |
-| Hold 15 s (LED flickers), release | Forget the Wi-Fi and server settings, then setup mode. The device identity is kept |
+| Hold 5 s (green goes solid), release | Setup mode: change Wi-Fi, or get a new pairing code |
+| Hold 15 s (red flickers), release | Forget the Wi-Fi and server settings, then setup mode. The device identity is kept |
 
 ### Sounds
 - **Page**: triple beeps for `CONFIG_NOTIFIER_ALARM_SECONDS` (60 s), then one beep a minute for `CONFIG_NOTIFIER_REMINDER_MINUTES` (10) until acknowledged.
 - **Quiet switch**: pages flash the LED but don't sound. Server-sent *test* commands sound regardless, since they're deliberate.
 - **Trouble chirp**: while armed, if the pager hasn't reached the server for `CONFIG_NOTIFIER_TROUBLE_CHIRP_MINUTES` (30), it gives a tiny chirp every 10 min, like a smoke detector's low-battery chirp. Set it to 0 to disable.
 
-## Making it loud
-"Loud enough to wake you" is the main hardware risk, so prototype the alarm before laying out the board. dB figures vary a lot with the part and enclosure, so measure with a meter or phone app at 1 m.
+## Alarm
+The target is pager loud, not smoke-alarm loud. Pagers ran off a single 1.5 V cell, so 5 V from USB is plenty: no boost converter or siren module is needed. All of these switch from the USB 5 V rail through a small NPN transistor or logic-level N-MOSFET (e.g. AO3400) on the low side, gated by the alarm GPIO.
 
-1. **Bare piezo transducer driven from a GPIO at 3.3 V**: quiet, roughly 70–80 dB. Fine for bench testing only.
-2. **Bare piezo through a piezo driver IC**, e.g. Diodes **PAM8904**, a charge-pump piezo driver with up to ~18 Vpp from 3.3 V. Feed the LEDC output into its input and pick a transducer with resonance at `CONFIG_NOTIFIER_ALARM_FREQ_HZ` (usually 2.7–4 kHz; output drops sharply off resonance). This is a good small, cheap option for a custom PCB.
-3. **Bare piezo through an H-bridge**: set `ALARM_GPIO_B`. The firmware drives both legs in antiphase, which doubles the swing (+6 dB). Combine with a higher bridge supply for more.
-4. **Self-oscillating 12 V piezo siren module**, the 95–110 dB kind sold for alarm panels. Pick `Alarm drive → On/off`, switch it with a logic-level N-MOSFET (e.g. AO3400) on the low side, and power it from a small 5→12 V boost converter (e.g. MT3608). This is the loudest and simplest option, but bulkier and it draws more current.
+1. **5 V active buzzer** (a 12 mm piezo or magnetic "self-drive" buzzer). Pick `Alarm drive → On/off`. This is the simplest option, and loud enough at a bedside. Its pitch is fixed by the part.
+2. **5 V passive magnetic transducer** (around 2.7 kHz). Pick `Square wave`, set `CONFIG_NOTIFIER_ALARM_FREQ_HZ` to its resonant frequency, and put a flyback diode across the coil. The firmware controls the pitch, which leaves room for distinct tones later (e.g. callout vs. test).
+3. **Passive piezo with an inductor across it**. This is the classic pager trick: the inductor's flyback swings the piezo well above the supply voltage. It's cheap and loud for its size. Also drive it with `Square wave` at the piezo's resonant frequency.
 
-## Daughter board sketch
-- Headers for the dev board (so a dead ESP32 is a $3 swap)
-- Alarm circuit (option 2 or 4 above)
-- A tactile button large enough to find in the dark, to GND
-- An SPDT slide switch, arm/quiet, to GND
-- A status LED that can be seen across a bedroom; brightness should be dimmable later via PWM
-- Optional: a second (red) LED for "trouble" so you don't have to read blink patterns
-- Powered by USB-C 5 V from a phone charger
+A passive part driven straight off a 3.3 V GPIO with no transistor is only good for bench testing. Pick parts by listening to a few at a bedside. If a part turns out too loud, it can be turned down later by reducing the PWM duty cycle; `ui.c` currently uses a fixed 50%.
 
-**Power outages.** A pager ran on batteries, but this needs mains power, Wi-Fi and the ISP all working. Members with a UPS on their router could also run the pager off a USB power bank with pass-through charging. A LiPo plus charger IC on the board is possible, but adds cost and safety work. Decide before rev 1.
+`ALARM_GPIO_B` (antiphase bridge drive) is still supported, but none of the options above need it.
+
+## Carrier board
+See [`hardware/rev1`](../hardware/rev1/README.md) for the schematic, BOM and layout notes.
+
+**Power outages.** A pager ran on batteries, but this needs mains power, Wi-Fi and the ISP all working. The XIAO ESP32C3 has a LiPo charger and battery pads built in, so battery backup is mostly a matter of case space and a protected cell. Rev 1 leaves the pads unused. Until then, a USB power bank with pass-through charging works for members who have a UPS on their router.
 
 ## Before production
 - **Signed images.** Enable `CONFIG_SECURE_SIGNED_APPS_NO_SECURE_BOOT` with your own signing key, so a compromised server can't push arbitrary firmware. Keep the key off the server.

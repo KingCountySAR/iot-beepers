@@ -61,7 +61,7 @@ static const char PAGE_HTML[] =
     "'<p>Connected! Now pair this pager to your account. Your pairing code is:</p><div class=code>'+s.code+'</div>'"
     "+'<p>Reconnect your phone to your normal Wi-Fi, then open:</p><p><a href=\"'+s.url+'\">'+s.url+'</a></p>'"
     "+'<p class=muted>The code is good for 30 minutes. You can pair after tapping Finish.</p>';"
-    "$('out').innerHTML+='<button onclick=\"fetch(\\'/finish\\',{method:\\'POST\\'});this.outerHTML=\\'<p>Restarting… the light will blink slowly once it is listening.</p>\\'\">Finish</button>'}}"
+    "$('out').innerHTML+='<button onclick=\"fetch(\\'/finish\\',{method:\\'POST\\'});this.outerHTML=\\'<p>Restarting… the green light blips every few seconds once it is listening.</p>\\'\">Finish</button>'}}"
     "</script></body></html>";
 
 static void set_state(portal_state_t st, const char *msg)

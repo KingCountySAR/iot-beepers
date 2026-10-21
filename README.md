@@ -1,6 +1,6 @@
 # SAR Notifier
 
-A dedicated, loud pager for SAR callouts. It's a cheap ESP32 box on the member's home Wi-Fi with a piezo alarm, an LED, a button and an arm/quiet switch. The central server forwards pages to it, tracks who received and acknowledged them, monitors device health, and pushes firmware updates.
+A dedicated, loud pager for SAR callouts. It's a cheap ESP32 box on the member's home Wi-Fi with a buzzer alarm, status and alert LEDs, a button and an arm/quiet switch. The central server forwards pages to it, tracks who received and acknowledged them, monitors device health, and pushes firmware updates.
 
 ```
  callout source ──POST /api/ingest/page──┐
@@ -21,14 +21,15 @@ A dedicated, loud pager for SAR callouts. It's a cheap ESP32 box on the member's
 | `web/` | Vite + React admin and member UI |
 | `firmware/` | ESP-IDF app ([firmware/README.md](firmware/README.md)) |
 | `deploy/` | Docker Compose + Caddy for a single VM |
-| `docs/` | [protocol](docs/protocol.md), [hardware](docs/hardware.md) |
+| `hardware/` | Carrier board for the XIAO ESP32C3 ([rev1](hardware/rev1/README.md)) |
+| `docs/` | [protocol](docs/protocol.md), [hardware behaviour](docs/hardware.md) |
 
 ## How a member sets up a pager
-1. Plug it in. The LED is mostly on: it's in setup mode.
+1. Plug it in. The green LED is mostly on: it's in setup mode.
 2. On a phone, join the `SAR-Pager-xxxx` Wi-Fi. The setup page opens; if it doesn't, browse to `http://192.168.4.1`.
 3. Choose the home Wi-Fi, enter its password, and confirm the server URL. The pager joins the network, registers with the server, and shows a **pairing code** and link.
 4. Rejoin home Wi-Fi, open the link, log in, and pick which channels the pager should alarm for.
-5. The LED settles to a short blip every 5 s. Press the button: one chirp means all good.
+5. The green LED settles to a short blip every 5 s. Press the button: one chirp means all good.
 
 Pairing happens on the server, never on the device. The pager only holds a random secret, so no member passwords live on it. Channel choices are made from any browser, and a replacement pager is just a re-pair.
 

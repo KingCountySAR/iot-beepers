@@ -1,0 +1,5 @@
+# Loaded automatically by ESP-IDF for esp32c3 builds, after sdkconfig.defaults.
+
+# The XIAO's USB-C port is the C3's built-in USB-Serial-JTAG. Send logs there, which also
+# frees UART0's pins (GPIO20/21) for the board.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

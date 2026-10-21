@@ -2,17 +2,17 @@
 
 #include <stdbool.h>
 
-/** What the status LED shows. See docs/hardware.md for the blink table. */
+/** What the green status and red alert LEDs show. See docs/hardware.md for the table. */
 typedef enum {
     LED_OFF,
-    LED_SETUP,       // mostly on, brief off every 2s: setup portal is up
-    LED_CONNECTING,  // fast blink: joining Wi-Fi / reaching server
-    LED_TROUBLE,     // slow 1s on / 1s off: lost connection
-    LED_UNPAIRED,    // double blip every 2s: connected but not paired to a member
-    LED_OK,          // short blip every 5s: connected and listening
-    LED_PAGE,        // rapid flash: unacknowledged page (press button)
-    LED_IDENTIFY,    // very rapid flash: "which one is it?"
-    LED_UPDATING,    // triple blip: OTA in progress
+    LED_SETUP,       // green mostly on, brief off every 2s: setup portal is up
+    LED_CONNECTING,  // green fast blink: joining Wi-Fi / reaching server
+    LED_TROUBLE,     // red blip every 3s: lost connection
+    LED_UNPAIRED,    // green double blip every 2s: connected but not paired to a member
+    LED_OK,          // green blip every 5s: connected and listening
+    LED_PAGE,        // red flashing: unacknowledged page (press button)
+    LED_IDENTIFY,    // green/red alternating: "which one is it?"
+    LED_UPDATING,    // green triple blip: OTA in progress
 } led_mode_t;
 
 typedef enum {

@@ -30,16 +30,21 @@ typedef struct {
     uint16_t win[3][2];
 } led_pattern_t;
 
-static const led_pattern_t LED_PATTERNS[] = {
-    [LED_OFF] = {1000, {{0, 0}}},
-    [LED_SETUP] = {2000, {{0, 1800}}},
-    [LED_CONNECTING] = {250, {{0, 125}}},
-    [LED_TROUBLE] = {2000, {{0, 1000}}},
-    [LED_UNPAIRED] = {2000, {{0, 100}, {250, 350}}},
-    [LED_OK] = {5000, {{0, 60}}},
-    [LED_PAGE] = {200, {{0, 100}}},
-    [LED_IDENTIFY] = {100, {{0, 50}}},
-    [LED_UPDATING] = {1000, {{0, 50}, {200, 250}, {400, 450}}},
+#define DARK {1000, {{0, 0}}}
+
+/** Green = status, red = needs attention (the tall LED that's visible across a room). */
+static const struct {
+    led_pattern_t green, red;
+} LED_PATTERNS[] = {
+    [LED_OFF] = {DARK, DARK},
+    [LED_SETUP] = {{2000, {{0, 1800}}}, DARK},
+    [LED_CONNECTING] = {{250, {{0, 125}}}, DARK},
+    [LED_TROUBLE] = {DARK, {3000, {{0, 150}}}},
+    [LED_UNPAIRED] = {{2000, {{0, 100}, {250, 350}}}, DARK},
+    [LED_OK] = {{5000, {{0, 60}}}, DARK},
+    [LED_PAGE] = {DARK, {400, {{0, 200}}}},
+    [LED_IDENTIFY] = {{200, {{0, 100}}}, {200, {{100, 200}}}},
+    [LED_UPDATING] = {{1000, {{0, 50}, {200, 250}, {400, 450}}}, DARK},
 };
 
 // ---- Sounds: a list of beeps, optionally looped for a total duration ----------------
@@ -101,14 +106,20 @@ static void alarm_output(bool on)
 #endif
 }
 
-static void led_output(bool on)
+#ifdef CONFIG_NOTIFIER_LED_ACTIVE_LOW
+#define LED_LEVEL(on) (!(on))
+#else
+#define LED_LEVEL(on) (on)
+#endif
+
+static void led_output(bool green, bool red)
 {
-    gpio_set_level(CONFIG_NOTIFIER_LED_GPIO, CONFIG_NOTIFIER_LED_ACTIVE_LOW ? !on : on);
+    if (CONFIG_NOTIFIER_STATUS_LED_GPIO >= 0) gpio_set_level(CONFIG_NOTIFIER_STATUS_LED_GPIO, LED_LEVEL(green));
+    if (CONFIG_NOTIFIER_ALERT_LED_GPIO >= 0) gpio_set_level(CONFIG_NOTIFIER_ALERT_LED_GPIO, LED_LEVEL(red));
 }
 
-static bool led_pattern_on(led_mode_t mode, int64_t now_ms)
+static bool led_pattern_on(const led_pattern_t *p, int64_t now_ms)
 {
-    const led_pattern_t *p = &LED_PATTERNS[mode];
     uint32_t t = now_ms % p->period;
     for (int i = 0; i < 3; i++) {
         if (t >= p->win[i][0] && t < p->win[i][1]) return true;
@@ -116,14 +127,17 @@ static bool led_pattern_on(led_mode_t mode, int64_t now_ms)
     return false;
 }
 
+// Optional pins are -1 when absent.
+static uint64_t pin_bit(int gpio) { return gpio >= 0 ? 1ULL << gpio : 0; }
+
 static void init_outputs(void)
 {
-    gpio_config_t led = {
-        .pin_bit_mask = 1ULL << CONFIG_NOTIFIER_LED_GPIO,
-        .mode = GPIO_MODE_OUTPUT,
-    };
-    ESP_ERROR_CHECK(gpio_config(&led));
-    led_output(false);
+    uint64_t leds = pin_bit(CONFIG_NOTIFIER_STATUS_LED_GPIO) | pin_bit(CONFIG_NOTIFIER_ALERT_LED_GPIO);
+    if (leds) {
+        gpio_config_t led = {.pin_bit_mask = leds, .mode = GPIO_MODE_OUTPUT};
+        ESP_ERROR_CHECK(gpio_config(&led));
+    }
+    led_output(false, false);
 
 #if CONFIG_NOTIFIER_ALARM_DRIVE_PWM
     ledc_timer_config_t timer = {
@@ -161,8 +175,8 @@ static void init_outputs(void)
 
 static void init_inputs(void)
 {
-    uint64_t mask = 1ULL << CONFIG_NOTIFIER_BUTTON_GPIO;
-    if (CONFIG_NOTIFIER_SWITCH_GPIO >= 0) mask |= 1ULL << CONFIG_NOTIFIER_SWITCH_GPIO;
+    uint64_t mask = pin_bit(CONFIG_NOTIFIER_BUTTON_GPIO) | pin_bit(CONFIG_NOTIFIER_BUTTON_ALT_GPIO) |
+                    pin_bit(CONFIG_NOTIFIER_SWITCH_GPIO);
     gpio_config_t in = {
         .pin_bit_mask = mask,
         .mode = GPIO_MODE_INPUT,
@@ -194,7 +208,8 @@ static void ui_task(void *arg)
         int64_t now = esp_timer_get_time() / 1000;
 
         // --- button: debounce, measure hold, report on release
-        bool btn_raw = gpio_get_level(CONFIG_NOTIFIER_BUTTON_GPIO) == 0;
+        bool btn_raw = gpio_get_level(CONFIG_NOTIFIER_BUTTON_GPIO) == 0 ||
+                       (CONFIG_NOTIFIER_BUTTON_ALT_GPIO >= 0 && gpio_get_level(CONFIG_NOTIFIER_BUTTON_ALT_GPIO) == 0);
         if (btn_raw != btn_raw_prev) {
             btn_raw_prev = btn_raw;
             btn_changed = now;
@@ -263,17 +278,17 @@ static void ui_task(void *arg)
         }
         s_playing = snd != NULL;
 
-        // --- LED, with hold feedback overriding the normal pattern
-        bool led;
+        // --- LEDs, with hold feedback overriding the normal pattern:
+        // 5s = green solid (release for setup), 15s = red flicker (release to reset).
         int64_t held = btn_down ? now - btn_down_at : 0;
         if (held >= HOLD_RESET_MS) {
-            led = led_pattern_on(LED_IDENTIFY, now);
+            led_output(false, led_pattern_on(&LED_PATTERNS[LED_IDENTIFY].green, now));
         } else if (held >= HOLD_SETUP_MS) {
-            led = true;
+            led_output(true, false);
         } else {
-            led = led_pattern_on(s_led_mode, now);
+            led_output(led_pattern_on(&LED_PATTERNS[s_led_mode].green, now),
+                       led_pattern_on(&LED_PATTERNS[s_led_mode].red, now));
         }
-        led_output(led);
     }
 }
 
