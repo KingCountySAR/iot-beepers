@@ -22,7 +22,7 @@ A dedicated, loud pager for SAR callouts. It's a cheap ESP32 box on the member's
 | `firmware/` | ESP-IDF app ([firmware/README.md](firmware/README.md)) |
 | `deploy/` | Docker Compose + Caddy for a single VM |
 | `hardware/` | Carrier board for the XIAO ESP32C3 ([rev1](hardware/rev1/README.md)) |
-| `docs/` | [protocol](docs/protocol.md), [hardware behaviour](docs/hardware.md) |
+| `docs/` | [protocol](docs/protocol.md), [hardware behaviour](docs/hardware.md), [metrics](docs/metrics.md) |
 
 ## How a member sets up a pager
 1. Plug it in. The green LED is mostly on: it's in setup mode.
@@ -47,12 +47,14 @@ Requires Node 22+.
 ```sh
 npm install
 cp server/.env.example server/.env   # sets the dev admin password
-npm run dev                          # server :8080 + Vite :5173 (proxies /api and /mqtt)
+npm run dev                          # UI :4100 (Vite, proxies /api and /mqtt to the server on :4102), metrics :4101
 npm test                             # server integration tests (PGlite)
 TEST_DATABASE_URL=postgres://postgres:pw@localhost:5432/postgres npm test   # same, against real Postgres
 ```
 
-Log in at http://localhost:5173 as `admin` with the password from `.env`. Create a channel, then pair a device.
+Log in at http://localhost:4100 as `admin` with the password from `.env`. Create a channel, then pair a device.
+
+The UI is on :4100 and metrics on :4101 in production too. Dev ports and URLs come from `server/dev.env`; anything in `server/.env` overrides them.
 
 **Without hardware**, simulate a device with the helpers in `server/test/harness.ts`. They do the same register → MQTT → hello flow as the firmware.
 
@@ -73,6 +75,8 @@ docker compose -f deploy/docker-compose.yml --env-file deploy/.env up -d --build
 ```
 
 Open ports 80 and 443 on the VM's network security group. To use Azure Database for PostgreSQL instead, set `DATABASE_URL` and remove the `db` service.
+
+**Firmware:** run `firmware/build.sh <board>` and upload the `dist/` image on the **Firmware** page. Members can then flash new pagers from the **Flash** page in Chrome or Edge, and updates roll out over Wi-Fi per board. See [firmware/README.md](firmware/README.md).
 
 ## Not done yet
 - **Ingest from email/SMS.** The plumbing is `POST /api/ingest/page`. Add an inbound-email webhook (Postmark/Mailgun/SES) or a Twilio number that calls it.

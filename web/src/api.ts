@@ -75,6 +75,9 @@ export interface PageDetail extends Omit<PageSummary, 'channelName' | 'targets' 
 }
 
 export interface Firmware {
+  board: string;
+  chip: string;
+  flashable: boolean;
   version: string;
   sha256: string;
   size: number;
@@ -83,11 +86,34 @@ export interface Firmware {
   uploadedAt: string;
 }
 
-export interface Stats {
-  devices: { total: number; claimed: number; online: number; armed: number };
-  pages: { last24h: number };
-  offlineClaimed: { id: string; name: string; ownerName: string; lastSeenAt: string | null }[];
+export interface FirmwareList {
+  /** Board -> default version. */
+  defaults: Record<string, string>;
+  images: Firmware[];
 }
+
+export interface FlashLayout {
+  bootloaderOffset: number;
+  partitionTableOffset: number;
+  otadataOffset: number;
+  otadataSize: number;
+  appOffset: number;
+}
+
+/** A board with images the browser flasher can write (GET /flash). */
+export interface FlashBoard {
+  board: string;
+  chip: string;
+  default: string | null;
+  images: { version: string; chip: string; layout: FlashLayout; uploadedAt: string }[];
+}
+
+/** Display names for known boards (CONFIG_NOTIFIER_BOARD). Unknown IDs are shown as-is. */
+export const BOARD_NAMES: Record<string, string> = {
+  'xiao-c3': 'Seeed XIAO ESP32C3 (rev 1 board)',
+  'devkit-v1': 'ESP32 DevKit V1 (prototype)',
+};
+export const boardName = (board: string) => BOARD_NAMES[board] ?? board;
 
 export class ApiError extends Error {
   constructor(

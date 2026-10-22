@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
-import { api, fmtTime, fmtUptime, timeAgo, useApi, type Channel, type DeviceDetail, type Firmware } from '../api';
+import { api, boardName, fmtTime, fmtUptime, timeAgo, useApi, type Channel, type DeviceDetail, type FirmwareList } from '../api';
 import { useAuth } from '../App';
 import { ActionButton, ErrorText, Signal, StatusPill } from '../components';
 
@@ -11,7 +11,7 @@ export function DevicePage() {
   const { user } = useAuth();
   const device = useApi<DeviceDetail>(`/devices/${id}`, 5000);
   const channels = useApi<Channel[]>('/channels');
-  const fw = useApi<{ default: string | null; images: Firmware[] }>(user?.isAdmin ? '/firmware' : null);
+  const fw = useApi<FirmwareList>(user?.isAdmin ? '/firmware' : null);
 
   const [name, setName] = useState('');
   const [selected, setSelected] = useState<number[]>([]);
@@ -103,7 +103,7 @@ export function DevicePage() {
             <dd>{fmtUptime(d.uptimeS)}</dd>
             <dt>Firmware</dt>
             <dd>
-              {d.fwVersion ?? '—'} {d.hwRev && <span className="muted">(hw {d.hwRev})</span>}
+              {d.fwVersion ?? '—'} {d.hwRev && <span className="muted">({boardName(d.hwRev)})</span>}
             </dd>
             <dt>IP</dt>
             <dd>{d.ip ?? '—'}</dd>
@@ -129,24 +129,33 @@ export function DevicePage() {
       {user?.isAdmin && fw.data && (
         <div className="card">
           <h2>Firmware target</h2>
-          <p className="muted">
-            Leave on default to follow the fleet rollout ({fw.data.default ?? 'none set'}), or pin this device to a
-            version — useful for trying a release on one pager first.
-          </p>
-          <select
-            value={d.fwTarget ?? ''}
-            onChange={async (e) => {
-              await api('PUT', `/devices/${d.id}/firmware-target`, { version: e.target.value || null });
-              await device.reload();
-            }}
-          >
-            <option value="">Default</option>
-            {fw.data.images.map((f) => (
-              <option key={f.version} value={f.version}>
-                {f.version}
-              </option>
-            ))}
-          </select>
+          {d.hwRev ? (
+            <>
+              <p className="muted">
+                Leave on default to follow the rollout for {boardName(d.hwRev)} (
+                {fw.data.defaults[d.hwRev] ?? 'none set'}), or pin this device to a version — useful for trying a
+                release on one pager first.
+              </p>
+              <select
+                value={d.fwTarget ?? ''}
+                onChange={async (e) => {
+                  await api('PUT', `/devices/${d.id}/firmware-target`, { version: e.target.value || null });
+                  await device.reload();
+                }}
+              >
+                <option value="">Default</option>
+                {fw.data.images
+                  .filter((f) => f.board === d.hwRev)
+                  .map((f) => (
+                    <option key={f.version} value={f.version}>
+                      {f.version}
+                    </option>
+                  ))}
+              </select>
+            </>
+          ) : (
+            <p className="muted">This pager hasn't reported its board, so it won't be sent updates.</p>
+          )}
         </div>
       )}
 

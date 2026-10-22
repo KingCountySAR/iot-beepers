@@ -6,6 +6,7 @@ import { ChannelsPage } from './pages/Channels';
 import { DashboardPage } from './pages/Dashboard';
 import { DevicePage } from './pages/Device';
 import { FirmwarePage } from './pages/Firmware';
+import { FlashPage } from './pages/Flash';
 import { LoginPage } from './pages/Login';
 import { PagePage, PagesPage } from './pages/Pages';
 import { PairPage } from './pages/Pair';
@@ -51,6 +52,7 @@ export function App() {
             {user.isAdmin ? 'Devices' : 'My pagers'}
           </NavLink>
           <NavLink to="/pages">Pages</NavLink>
+          <NavLink to="/flash">Flash</NavLink>
           {user.isAdmin && (
             <>
               <NavLink to="/channels">Channels</NavLink>
@@ -72,6 +74,7 @@ export function App() {
           <Route path="/devices/:id" element={<DevicePage />} />
           <Route path="/pages" element={<PagesPage />} />
           <Route path="/pages/:id" element={<PagePage />} />
+          <Route path="/flash" element={<FlashPage />} />
           <Route path="/account" element={<AccountPage />} />
           {user.isAdmin && (
             <>

@@ -1,0 +1,46 @@
+# Prometheus alerting rules for the SAR notifier. Add to rule_files in prometheus.yml.
+# Assumes the scrape job is named "sar-notifier" (see docs/metrics.md).
+groups:
+  - name: sar-notifier
+    rules:
+      - alert: SarNotifierDown
+        expr: up{job="sar-notifier"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: SAR notifier server is not being scraped; pages may not be going out
+
+      # A member's pager can't receive pages. The info join adds the pager and owner names.
+      - alert: SarPagerOffline
+        expr: sar_device_online * on(device) group_left(name, owner) sar_device_info{owner!=""} == 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.owner }}'s pager {{ $labels.name }} has been offline for 30 minutes"
+
+      # Many pagers dropping at once points at the server, proxy or DNS rather than members' homes.
+      - alert: SarManyPagersOffline
+        expr: |
+          sum(sar_device_online * on(device) sar_device_info{owner!=""})
+            / count(sar_device_info{owner!=""}) < 0.5
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: Fewer than half of paired pagers are connected
+
+      - alert: SarFirmwareRollback
+        expr: increase(sar_device_events_total{type="ota_rollback"}[1h]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: A pager rolled back a firmware update; pause the rollout and check its log
+
+      - alert: SarMqttAuthFailures
+        expr: increase(sar_mqtt_auth_failures_total[15m]) > 20
+        labels:
+          severity: warning
+        annotations:
+          summary: Repeated rejected pager logins (a reset device retrying, or someone probing)

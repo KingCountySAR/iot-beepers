@@ -20,7 +20,7 @@ COPY --from=build /app/server/dist server/dist
 COPY --from=build /app/server/drizzle server/drizzle
 COPY --from=build /app/web/dist web/dist
 WORKDIR /app/server
-ENV PORT=8080 WEB_DIST=/app/web/dist
-EXPOSE 8080
+ENV PORT=4100 METRICS_PORT=4101 WEB_DIST=/app/web/dist
+EXPOSE 4100 4101
 USER node
 CMD ["node", "dist/index.js"]

@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
 import { zValidator } from '@hono/zod-validator';
-import { and, count, desc, eq, gt, inArray, sql } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNotNull, like, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
@@ -27,8 +27,8 @@ import {
   settings,
   users,
 } from '../db/schema.js';
-import { FIRMWARE_PROJECT, parseAppImage } from '../firmware.js';
-import { DEFAULT_FW_KEY, type Hub } from '../hub.js';
+import { FIRMWARE_PROJECT, parseFirmwareUpload } from '../firmware.js';
+import { DEFAULT_FW_PREFIX, type Hub } from '../hub.js';
 
 export interface ApiDeps {
   db: Db;
@@ -97,6 +97,7 @@ const UserPatch = z.object({
   isAdmin: z.boolean().optional(),
 });
 const VersionBody = z.object({ version: z.string().nullable() });
+const DefaultFirmwareBody = z.object({ board: z.string().min(1), version: z.string().nullable() });
 
 export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
   const app = new Hono<AppEnv>();
@@ -161,12 +162,19 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
       !!expected &&
       token.length === expected.length &&
       timingSafeEqual(Buffer.from(token), Buffer.from(expected));
-    if (!ok) return c.json({ error: 'Unauthorized' }, 401);
+    if (!ok) {
+      hub.metrics.ingest.inc({ result: 'unauthorized' });
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
 
     const body = c.req.valid('json');
     const [ch] = await db.select().from(channels).where(eq(channels.slug, body.channel));
-    if (!ch) return c.json({ error: `Unknown channel "${body.channel}"` }, 404);
+    if (!ch) {
+      hub.metrics.ingest.inc({ result: 'unknown_channel' });
+      return c.json({ error: `Unknown channel "${body.channel}"` }, 404);
+    }
     const { page, targets } = await hub.createPage({ ...body, channelId: ch.id, source: 'api' });
+    hub.metrics.ingest.inc({ result: 'ok' });
     return c.json({ id: page.id, targets }, 201);
   });
 
@@ -294,8 +302,19 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
 
   app.put('/devices/:id/firmware-target', requireAdmin, zValidator('json', VersionBody), async (c) => {
     const id = c.req.param('id');
-    await db.update(devices).set({ fwTarget: c.req.valid('json').version }).where(eq(devices.id, id));
-    const started = await hub.otaAll([id]);
+    const { version } = c.req.valid('json');
+    if (version !== null) {
+      const [dev] = await db.select({ board: devices.hwRev }).from(devices).where(eq(devices.id, id));
+      if (!dev) return c.json({ error: 'Not found' }, 404);
+      if (!dev.board) return c.json({ error: "This pager hasn't reported its board yet" }, 409);
+      const [fw] = await db
+        .select({ v: firmware.version })
+        .from(firmware)
+        .where(and(eq(firmware.board, dev.board), eq(firmware.version, version)));
+      if (!fw) return c.json({ error: `No ${version} image for board ${dev.board}` }, 404);
+    }
+    await db.update(devices).set({ fwTarget: version }).where(eq(devices.id, id));
+    const started = await hub.otaAll({ ids: [id] });
     return c.json({ ok: true, started: started > 0 });
   });
 
@@ -383,19 +402,27 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
 
   // ---- firmware -----------------------------------------------------------
 
+  const firmwareColumns = {
+    board: firmware.board,
+    version: firmware.version,
+    chip: firmware.chip,
+    sha256: firmware.sha256,
+    size: firmware.size,
+    idfVersion: firmware.idfVersion,
+    notes: firmware.notes,
+    flashable: sql<boolean>`${firmware.bootloader} is not null`,
+    uploadedAt: firmware.uploadedAt,
+  };
+
+  /** Board -> default version, for every board that has one. */
+  async function firmwareDefaults(): Promise<Record<string, string>> {
+    const rows = await db.select().from(settings).where(like(settings.key, `${DEFAULT_FW_PREFIX}%`));
+    return Object.fromEntries(rows.map((r) => [r.key.slice(DEFAULT_FW_PREFIX.length), r.value]));
+  }
+
   app.get('/firmware', requireAdmin, async (c) => {
-    const rows = await db
-      .select({
-        version: firmware.version,
-        sha256: firmware.sha256,
-        size: firmware.size,
-        idfVersion: firmware.idfVersion,
-        notes: firmware.notes,
-        uploadedAt: firmware.uploadedAt,
-      })
-      .from(firmware)
-      .orderBy(desc(firmware.uploadedAt));
-    return c.json({ default: await hub.defaultFirmware(), images: rows });
+    const rows = await db.select(firmwareColumns).from(firmware).orderBy(firmware.board, desc(firmware.uploadedAt));
+    return c.json({ defaults: await firmwareDefaults(), images: rows });
   });
 
   app.post('/firmware', requireAdmin, async (c) => {
@@ -403,52 +430,97 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
     const file = form['file'];
     if (!(file instanceof File)) return c.json({ error: 'Attach the .bin as "file"' }, 400);
     if (file.size > MAX_FIRMWARE_BYTES) return c.json({ error: 'Image too large' }, 400);
-    const image = Buffer.from(await file.arrayBuffer());
-    let desc;
+    let upload;
     try {
-      desc = parseAppImage(image);
+      upload = parseFirmwareUpload(Buffer.from(await file.arrayBuffer()));
     } catch (err) {
       return c.json({ error: (err as Error).message }, 400);
     }
-    if (desc.project !== FIRMWARE_PROJECT) {
-      return c.json({ error: `Image is for project "${desc.project}", expected "${FIRMWARE_PROJECT}"` }, 400);
+    const { desc: d, app: image, flash } = upload;
+    if (d.project !== FIRMWARE_PROJECT) {
+      return c.json({ error: `Image is for project "${d.project}", expected "${FIRMWARE_PROJECT}"` }, 400);
     }
-    const [existing] = await db.select({ v: firmware.version }).from(firmware).where(eq(firmware.version, desc.version));
-    if (existing) return c.json({ error: `Version ${desc.version} already uploaded` }, 409);
+    const [existing] = await db
+      .select({ v: firmware.version })
+      .from(firmware)
+      .where(and(eq(firmware.board, d.board), eq(firmware.version, d.version)));
+    if (existing) return c.json({ error: `Version ${d.version} for ${d.board} already uploaded` }, 409);
     await db.insert(firmware).values({
-      version: desc.version,
-      sha256: desc.sha256,
-      size: desc.size,
-      idfVersion: desc.idfVersion,
+      board: d.board,
+      version: d.version,
+      chip: d.chip,
+      sha256: d.sha256,
+      size: d.size,
+      idfVersion: d.idfVersion,
       notes: typeof form['notes'] === 'string' ? form['notes'] : '',
       image,
+      bootloader: flash?.bootloader ?? null,
+      partitionTable: flash?.partitionTable ?? null,
+      flashLayout: flash?.layout ?? null,
     });
-    return c.json({ version: desc.version, sha256: desc.sha256, size: desc.size }, 201);
+    return c.json({ board: d.board, version: d.version, sha256: d.sha256, size: d.size, flashable: !!flash }, 201);
   });
 
-  /** Set the version every device without its own target should run, and start rolling it out. */
-  app.put('/firmware/default', requireAdmin, zValidator('json', VersionBody), async (c) => {
-    const { version } = c.req.valid('json');
-    if (version === null) {
-      await db.delete(settings).where(eq(settings.key, DEFAULT_FW_KEY));
-      return c.json({ ok: true, started: 0 });
+  /** Set the version every device of a board without its own target should run, and start rolling it out. */
+  app.put('/firmware/default', requireAdmin, zValidator('json', DefaultFirmwareBody), async (c) => {
+    const { board, version } = c.req.valid('json');
+    if (version !== null) {
+      const [fw] = await db
+        .select({ v: firmware.version })
+        .from(firmware)
+        .where(and(eq(firmware.board, board), eq(firmware.version, version)));
+      if (!fw) return c.json({ error: 'Unknown version' }, 404);
     }
-    const [fw] = await db.select({ v: firmware.version }).from(firmware).where(eq(firmware.version, version));
-    if (!fw) return c.json({ error: 'Unknown version' }, 404);
-    await db
-      .insert(settings)
-      .values({ key: DEFAULT_FW_KEY, value: version })
-      .onConflictDoUpdate({ target: settings.key, set: { value: version } });
-    return c.json({ ok: true, started: await hub.otaAll() });
+    await hub.setDefaultFirmware(board, version);
+    return c.json({ ok: true, started: version === null ? 0 : await hub.otaAll({ board }) });
   });
 
-  app.delete('/firmware/:version', requireAdmin, async (c) => {
-    const version = c.req.param('version');
-    if ((await hub.defaultFirmware()) === version) {
+  app.delete('/firmware/:board/:version', requireAdmin, async (c) => {
+    const { board, version } = c.req.param();
+    if ((await hub.defaultFirmware(board)) === version) {
       return c.json({ error: 'That version is the current default' }, 409);
     }
-    await db.delete(firmware).where(eq(firmware.version, version));
+    await db.delete(firmware).where(and(eq(firmware.board, board), eq(firmware.version, version)));
     return c.json({ ok: true });
+  });
+
+  // ---- browser flasher ----------------------------------------------------
+
+  /** Boards with flashable images, newest first, and which version each defaults to. */
+  app.get('/flash', async (c) => {
+    const rows = await db
+      .select({
+        board: firmware.board,
+        version: firmware.version,
+        chip: firmware.chip,
+        layout: firmware.flashLayout,
+        uploadedAt: firmware.uploadedAt,
+      })
+      .from(firmware)
+      .where(isNotNull(firmware.bootloader))
+      .orderBy(firmware.board, desc(firmware.uploadedAt));
+    const defaults = await firmwareDefaults();
+    const boards = new Map<string, { board: string; chip: string; default: string | null; images: typeof rows }>();
+    for (const r of rows) {
+      const b = boards.get(r.board) ?? { board: r.board, chip: r.chip, default: defaults[r.board] ?? null, images: [] };
+      b.images.push(r);
+      boards.set(r.board, b);
+    }
+    return c.json({ publicUrl: cfg.PUBLIC_URL, boards: [...boards.values()] });
+  });
+
+  const FLASH_PARTS = { bootloader: firmware.bootloader, 'partition-table': firmware.partitionTable, app: firmware.image };
+
+  app.get('/flash/:board/:version/:part', async (c) => {
+    const { board, version, part } = c.req.param();
+    const column = FLASH_PARTS[part as keyof typeof FLASH_PARTS];
+    if (!column) return c.json({ error: 'Not found' }, 404);
+    const [row] = await db
+      .select({ data: column })
+      .from(firmware)
+      .where(and(eq(firmware.board, board), eq(firmware.version, version)));
+    if (!row?.data) return c.json({ error: 'Not found' }, 404);
+    return c.body(new Uint8Array(row.data), 200, { 'Content-Type': 'application/octet-stream' });
   });
 
   // ---- users --------------------------------------------------------------
@@ -489,30 +561,6 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
     if (id === c.var.user!.id) return c.json({ error: "You can't delete yourself" }, 400);
     await db.delete(users).where(eq(users.id, id));
     return c.json({ ok: true });
-  });
-
-  // ---- dashboard ----------------------------------------------------------
-
-  app.get('/stats', async (c) => {
-    const [d] = await db
-      .select({
-        total: count(),
-        claimed: sql<number>`count(${devices.ownerId})::int`,
-        online: sql<number>`count(*) filter (where ${devices.online})::int`,
-        armed: sql<number>`count(*) filter (where ${devices.online} and ${devices.armed})::int`,
-      })
-      .from(devices);
-    const [p] = await db
-      .select({ last24h: count() })
-      .from(pages)
-      .where(gt(pages.createdAt, new Date(Date.now() - 24 * 3600_000)));
-    const offlineClaimed = await db
-      .select({ id: devices.id, name: devices.name, ownerName: users.displayName, lastSeenAt: devices.lastSeenAt })
-      .from(devices)
-      .innerJoin(users, eq(users.id, devices.ownerId))
-      .where(and(eq(devices.online, false)))
-      .orderBy(devices.lastSeenAt);
-    return c.json({ devices: d, pages: p, offlineClaimed });
   });
 
   return app;

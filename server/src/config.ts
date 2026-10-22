@@ -3,9 +3,9 @@ import { z } from 'zod';
 const minutes = (def: number) => z.coerce.number().positive().default(def);
 
 const Env = z.object({
-  PORT: z.coerce.number().int().default(8080),
+  PORT: z.coerce.number().int().default(4100),
   /** Externally reachable base URL. Devices derive the MQTT and OTA URLs from this. */
-  PUBLIC_URL: z.url().default('http://localhost:8080'),
+  PUBLIC_URL: z.url().default('http://localhost:4100'),
   /** Postgres connection string. When unset, an embedded PGlite database is used (dev only). */
   DATABASE_URL: z.string().optional(),
   /** Directory for the embedded PGlite database. Use "memory://" for an ephemeral DB. */
@@ -22,6 +22,10 @@ const Env = z.object({
   CLAIM_CODE_TTL_MIN: minutes(30),
   /** Don't re-send an OTA command to the same device more often than this. */
   OTA_RETRY_MIN: minutes(60),
+  /** Port for Prometheus GET /metrics, kept off the public port. 0 disables it. */
+  METRICS_PORT: z.coerce.number().int().default(4101),
+  /** Optional bearer token Prometheus must send to /metrics. */
+  METRICS_TOKEN: z.string().optional(),
   /** Directory of the built web UI to serve. */
   WEB_DIST: z.string().default('../web/dist'),
 });

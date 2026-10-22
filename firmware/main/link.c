@@ -68,7 +68,7 @@ void link_send_status(bool hello)
     cJSON_AddNumberToObject(j, "uptime", (double)(esp_timer_get_time() / 1000000));
     cJSON_AddNumberToObject(j, "heap", esp_get_free_heap_size());
     if (hello) {
-        cJSON_AddStringToObject(j, "hw", CONFIG_NOTIFIER_HW_REV);
+        cJSON_AddStringToObject(j, "hw", CONFIG_NOTIFIER_BOARD);
         // Reset reason only means something on the first connection after boot.
         if (first_hello) cJSON_AddStringToObject(j, "reset", reset_reason_str());
         first_hello = false;

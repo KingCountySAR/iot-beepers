@@ -255,30 +255,6 @@ dd {
   margin: 0;
 }
 
-.tiles {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.tile {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 12px 16px;
-}
-
-.tile-value {
-  font-size: 1.6rem;
-  font-weight: 600;
-}
-
-.tile-label {
-  color: var(--muted);
-  font-size: 0.85rem;
-}
-
 .pill {
   display: inline-block;
   font-size: 0.8rem;
@@ -309,13 +285,14 @@ dd {
   margin-bottom: 16px;
 }
 
+.callout.warn {
+  background: var(--warn-bg);
+}
+
 .callout.ok {
   background: var(--ok-bg);
 }
 
-.callout.warn {
-  background: var(--warn-bg);
-}
 
 .signal.weak {
   color: var(--bad);
@@ -342,4 +319,20 @@ dd {
     display: block;
     overflow-x: auto;
   }
+}
+
+pre.log {
+  max-height: 240px;
+  overflow: auto;
+  font-size: 0.8rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  white-space: pre-wrap;
+}
+
+progress {
+  vertical-align: middle;
+  width: min(240px, 50%);
 }

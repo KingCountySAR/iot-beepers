@@ -7,10 +7,11 @@ The source of truth is `server/src/protocol.ts`. Firmware side: `firmware/main/l
 `POST {server}/api/device/register`, called during setup and on every boot.
 
 ```json
-{ "id": "a1b2c3d4e5f6", "secret": "<64 hex chars>", "fw": "0.1.0", "hw": "devkit" }
+{ "id": "a1b2c3d4e5f6", "secret": "<64 hex chars>", "fw": "0.1.0", "hw": "xiao-c3" }
 ```
 
 - `id`: the Wi-Fi MAC as lowercase hex.
+- `hw`: the board ID (`CONFIG_NOTIFIER_BOARD`, e.g. `xiao-c3`, `devkit-v1`). The server only offers a device firmware built for the same board, because the pins are compiled in.
 - `secret`: 32 random bytes generated on first boot and kept in NVS (namespace `ident`). A factory reset (holding the button 15s) keeps it; only a full flash erase loses it. The server stores only its SHA-256.
 
 The response for an unclaimed device:
@@ -38,7 +39,7 @@ A device may only subscribe to `dev/{id}/#` and may only publish to its own `sta
 
 | Topic | Payload | When |
 |---|---|---|
-| `dev/{id}/status` | `{"type":"hello","fw":"0.1.0","hw":"devkit","reset":"power-on","armed":true,"rssi":-61,"ip":"192.168.1.50","uptime":12,"heap":151000}` | After each (re)connect, once subscribed |
+| `dev/{id}/status` | `{"type":"hello","fw":"0.1.0","hw":"xiao-c3","reset":"power-on","armed":true,"rssi":-61,"ip":"192.168.1.50","uptime":12,"heap":151000}` | After each (re)connect, once subscribed |
 | `dev/{id}/status` | same shape with `"type":"heartbeat"`, no `hw` or `reset` | Every 60 s, and right away when the switch moves |
 | `dev/{id}/ack` | `{"page":42,"state":"received"}` | When a page arrives (duplicates included) |
 | `dev/{id}/ack` | `{"page":42,"state":"acked"}` | When the member presses the button |
@@ -51,7 +52,7 @@ A device may only subscribe to `dev/{id}/#` and may only publish to its own `sta
 | `dev/{id}/config` | `{"claimed":true,"name":"Bedside","channels":["callout","training"]}` |
 | `dev/{id}/page` | `{"id":42,"ch":"callout","title":"Callout","body":"Lost hiker…","alarm":true,"ts":1761030000}` |
 | `dev/{id}/cmd` | `{"cmd":"test"}`, `{"cmd":"identify"}`, `{"cmd":"reboot"}` |
-| `dev/{id}/cmd` | `{"cmd":"ota","version":"0.2.0","url":"https://host/api/device/firmware/0.2.0","sha256":"…","size":1178304}` |
+| `dev/{id}/cmd` | `{"cmd":"ota","version":"0.2.0","url":"https://host/api/device/firmware/xiao-c3/0.2.0","sha256":"…","size":1178304}` |
 
 ### What the server does on `hello`
 1. Sends `config`.

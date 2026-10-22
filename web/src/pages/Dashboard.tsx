@@ -1,36 +1,14 @@
 import { Link } from 'react-router';
-import { timeAgo, useApi, type Device, type Stats } from '../api';
+import { timeAgo, useApi, type Device } from '../api';
 import { useAuth } from '../App';
 import { ErrorText, Signal, StatusPill } from '../components';
 
 export function DashboardPage() {
   const { user } = useAuth();
   const devices = useApi<Device[]>('/devices', 5000);
-  const stats = useApi<Stats>(user?.isAdmin ? '/stats' : null, 5000);
 
   return (
     <section>
-      {stats.data && (
-        <div className="tiles">
-          <Tile label="Online" value={`${stats.data.devices.online} / ${stats.data.devices.total}`} />
-          <Tile label="Armed" value={stats.data.devices.armed} />
-          <Tile label="Paired" value={stats.data.devices.claimed} />
-          <Tile label="Pages (24h)" value={stats.data.pages.last24h} />
-        </div>
-      )}
-
-      {stats.data && stats.data.offlineClaimed.length > 0 && (
-        <div className="callout warn">
-          <strong>Paired pagers that are offline:</strong>{' '}
-          {stats.data.offlineClaimed.map((d, i) => (
-            <span key={d.id}>
-              {i > 0 && ', '}
-              <Link to={`/devices/${d.id}`}>{d.ownerName}</Link> ({timeAgo(d.lastSeenAt)})
-            </span>
-          ))}
-        </div>
-      )}
-
       <div className="row">
         <h1>{user?.isAdmin ? 'Devices' : 'My pagers'}</h1>
         <span className="spacer" />
@@ -80,14 +58,5 @@ export function DashboardPage() {
         </table>
       )}
     </section>
-  );
-}
-
-function Tile({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="tile">
-      <div className="tile-value">{value}</div>
-      <div className="tile-label">{label}</div>
-    </div>
   );
 }

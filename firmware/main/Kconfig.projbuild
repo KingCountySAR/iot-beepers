@@ -6,9 +6,13 @@ menu "SAR Notifier"
         help
             Pre-filled in the setup portal. Members can change it there.
 
-    config NOTIFIER_HW_REV
-        string "Hardware revision reported to the server"
-        default "devkit"
+    config NOTIFIER_BOARD
+        string "Board ID"
+        default "xiao-c3"
+        help
+            Which board and pin map this build is for. The image embeds it, and the server
+            only sends a pager updates built for its own board. Use a new ID whenever the
+            pins or chip change.
 
     menu "Pins"
         comment "Defaults match the rev 1 board on a Seeed XIAO ESP32C3 (hardware/rev1)"

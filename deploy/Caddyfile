@@ -2,7 +2,7 @@
 	encode gzip
 	# WebSocket upgrades on /mqtt (device MQTT) are proxied transparently. On a config
 	# reload, keep existing device connections open instead of dropping them all at once.
-	reverse_proxy app:8080 {
+	reverse_proxy app:4100 {
 		stream_close_delay 5m
 	}
 }

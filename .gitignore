@@ -7,6 +7,7 @@ data/
 # ESP-IDF
 firmware/build/
 firmware/build-*/
+firmware/dist/
 firmware/managed_components/
 firmware/sdkconfig
 firmware/sdkconfig.old

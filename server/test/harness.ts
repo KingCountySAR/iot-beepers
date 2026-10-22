@@ -10,6 +10,7 @@ import { createBroker } from '../src/broker.js';
 import { loadConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
 import { Hub, type Publish } from '../src/hub.js';
+import { Metrics } from '../src/metrics.js';
 
 /**
  * With TEST_DATABASE_URL set (a Postgres server URL), each server gets its own fresh
@@ -44,7 +45,7 @@ export async function startServer(env: Record<string, string> = {}) {
   let publish: Publish = async () => {};
   // PUBLIC_URL is only known after listening; the hub reads cfg lazily so patch it in place.
   const cfg = { ...base };
-  const hub = new Hub(db, cfg, (t, p) => publish(t, p));
+  const hub = new Hub(db, cfg, (t, p) => publish(t, p), new Metrics(db));
   const broker = await createBroker(db, hub);
   publish = broker.publish;
   const app = createApp({ db, cfg, hub, disconnect: broker.disconnect });

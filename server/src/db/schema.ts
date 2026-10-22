@@ -3,12 +3,14 @@ import {
   customType,
   index,
   integer,
+  jsonb,
   pgTable,
   primaryKey,
   serial,
   text,
   timestamp,
 } from 'drizzle-orm/pg-core';
+import type { FlashLayout } from '../firmware.js';
 
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 
@@ -58,6 +60,7 @@ export const devices = pgTable('devices', {
   lastSeenAt: ts('last_seen_at'),
   lastConnectAt: ts('last_connect_at'),
   fwVersion: text('fw_version'),
+  /** Board ID (CONFIG_NOTIFIER_BOARD) from the device; selects which firmware it gets. */
   hwRev: text('hw_rev'),
   ip: text('ip'),
   rssi: integer('rssi'),
@@ -120,16 +123,28 @@ export const deliveries = pgTable(
   (t) => [primaryKey({ columns: [t.pageId, t.deviceId] })],
 );
 
-export const firmware = pgTable('firmware', {
-  version: text('version').primaryKey(),
-  sha256: text('sha256').notNull(),
-  size: integer('size').notNull(),
-  idfVersion: text('idf_version').notNull().default(''),
-  notes: text('notes').notNull().default(''),
-  /** The app image itself. Kept in the DB so the app container stays stateless. */
-  image: bytea('image').notNull(),
-  uploadedAt: ts('uploaded_at').notNull().defaultNow(),
-});
+/** One row per board and version: the pins are compiled in, so images aren't interchangeable. */
+export const firmware = pgTable(
+  'firmware',
+  {
+    /** CONFIG_NOTIFIER_BOARD, read from the image. Devices report it as `hw`. */
+    board: text('board').notNull(),
+    version: text('version').notNull(),
+    chip: text('chip').notNull(),
+    sha256: text('sha256').notNull(),
+    size: integer('size').notNull(),
+    idfVersion: text('idf_version').notNull().default(''),
+    notes: text('notes').notNull().default(''),
+    /** The app image itself, for OTA. Kept in the DB so the app container stays stateless. */
+    image: bytea('image').notNull(),
+    /** Set when a merged image was uploaded; the browser flasher needs these too. */
+    bootloader: bytea('bootloader'),
+    partitionTable: bytea('partition_table'),
+    flashLayout: jsonb('flash_layout').$type<FlashLayout>(),
+    uploadedAt: ts('uploaded_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.board, t.version] })],
+);
 
 /** Small key/value store for server-wide settings (e.g. the default firmware version). */
 export const settings = pgTable('settings', {

@@ -1,6 +1,6 @@
 import { randomInt } from 'node:crypto';
 import { zValidator } from '@hono/zod-validator';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { z } from 'zod';
 import { sha256 } from '../auth.js';
@@ -79,8 +79,12 @@ export function deviceRoutes(db: Db, cfg: Config) {
   });
 
   /** OTA download. Firmware contains no secrets, so this is public. */
-  app.get('/firmware/:version', async (c) => {
-    const [fw] = await db.select().from(firmware).where(eq(firmware.version, c.req.param('version')));
+  app.get('/firmware/:board/:version', async (c) => {
+    const { board, version } = c.req.param();
+    const [fw] = await db
+      .select({ image: firmware.image, size: firmware.size, sha256: firmware.sha256 })
+      .from(firmware)
+      .where(and(eq(firmware.board, board), eq(firmware.version, version)));
     if (!fw) return c.notFound();
     return c.body(new Uint8Array(fw.image), 200, {
       'Content-Type': 'application/octet-stream',

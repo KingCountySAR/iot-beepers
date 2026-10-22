@@ -26,15 +26,19 @@ export async function createBroker(db: Db, hub: Hub) {
   const current = new Map<string, Client>();
 
   broker.authenticate = (client, username, password, done) => {
+    const reject = () => {
+      hub.metrics.mqttAuthFailures.inc();
+      done(authError(5), false);
+    };
     void (async () => {
       if (!username || !password || client.id !== username || !DEVICE_ID_RE.test(username)) {
-        return done(authError(5), false);
+        return reject();
       }
       const [dev] = await db
         .select({ secretHash: devices.secretHash })
         .from(devices)
         .where(eq(devices.id, username));
-      if (!dev?.secretHash || dev.secretHash !== sha256(password)) return done(authError(5), false);
+      if (!dev?.secretHash || dev.secretHash !== sha256(password)) return reject();
       done(null, true);
     })().catch((err) => done(err, false));
   };

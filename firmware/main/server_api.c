@@ -29,7 +29,7 @@ esp_err_t server_register(const char *server_url, register_result_t *out)
     cJSON_AddStringToObject(req, "id", settings_device_id());
     cJSON_AddStringToObject(req, "secret", settings_device_secret());
     cJSON_AddStringToObject(req, "fw", esp_app_get_description()->version);
-    cJSON_AddStringToObject(req, "hw", CONFIG_NOTIFIER_HW_REV);
+    cJSON_AddStringToObject(req, "hw", CONFIG_NOTIFIER_BOARD);
     char *body = cJSON_PrintUnformatted(req);
     cJSON_Delete(req);
 

@@ -26,6 +26,9 @@
 
 static const char *TAG = "app";
 
+// The server reads this marker from uploaded images to tell which board they are for.
+static const char BOARD_TAG[] = "SAR_BOARD=" CONFIG_NOTIFIER_BOARD;
+
 #define MAX_PENDING 8
 #define RECENT_IDS 16
 #define REMINDER_EVERY_MS (60 * 1000)
@@ -298,7 +301,7 @@ static void tick(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "SAR Notifier %s", esp_app_get_description()->version);
+    ESP_LOGI(TAG, "SAR Notifier %s for %s", esp_app_get_description()->version, BOARD_TAG + strlen("SAR_BOARD="));
     s_queue = xQueueCreate(16, sizeof(app_event_t));
 
     ESP_ERROR_CHECK(settings_init());
