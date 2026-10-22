@@ -12,3 +12,15 @@ firmware/managed_components/
 firmware/sdkconfig
 firmware/sdkconfig.old
 firmware/dependencies.lock
+
+# KiCad: generated fab output, downloaded tools, and per-user/local files
+hardware/**/kicad/fab/
+hardware/**/kicad/.tools/
+hardware/**/kicad/*-backups/
+hardware/**/kicad/*.kicad_prl
+hardware/**/kicad/fp-info-cache
+hardware/**/kicad/*.dsn
+hardware/**/kicad/*.ses
+hardware/**/kicad/__pycache__/
+hardware/**/kicad/.history/
+hardware/**/kicad/~*.lck
