@@ -1,33 +1,36 @@
 import { timingSafeEqual } from 'node:crypto';
 import { zValidator } from '@hono/zod-validator';
 import { and, count, desc, eq, inArray, isNotNull, like, sql } from 'drizzle-orm';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { z } from 'zod';
 import {
   createSession,
   destroySession,
-  hashPassword,
   requireAdmin,
   requireUser,
-  verifyPassword,
   type AppEnv,
   type SessionUser,
 } from '../auth.js';
+import type { Access, SignInRefusal } from '../access.js';
 import type { Config } from '../config.js';
 import type { Db } from '../db/index.js';
 import {
+  channelGrants,
   channels,
   deliveries,
   deviceChannels,
   deviceEvents,
   devices,
   firmware,
+  groupChannels,
+  userLogins,
   pages,
   settings,
   users,
 } from '../db/schema.js';
 import { FIRMWARE_PROJECT, parseFirmwareUpload } from '../firmware.js';
+import type { VerifyGoogleToken } from '../google.js';
 import { DEFAULT_FW_PREFIX, type Hub } from '../hub.js';
 import { Rtttl } from '../protocol.js';
 
@@ -37,6 +40,9 @@ export interface ApiDeps {
   hub: Hub;
   /** Drop a device's MQTT session. */
   disconnect: (deviceId: string) => void;
+  access: Access;
+  /** Checks Google sign-in tokens; null when GOOGLE_CLIENT_ID is unset. */
+  verifyGoogle: VerifyGoogleToken | null;
 }
 
 const MAX_FIRMWARE_BYTES = 4 * 1024 * 1024;
@@ -62,7 +68,7 @@ const deviceColumns = {
   resetReason: devices.resetReason,
 };
 
-const Login = z.object({ username: z.string(), password: z.string() });
+const DevLogin = z.object({ email: z.email(), name: z.string().max(80).default('') });
 const Pair = z.object({ code: z.string().trim().toUpperCase(), name: z.string().max(60).optional() });
 const DevicePatch = z.object({
   name: z.string().max(60).optional(),
@@ -90,21 +96,12 @@ const IngestBody = z.object({
   body: z.string().min(1).max(2000),
   ttlMin: z.number().int().positive().max(24 * 60).optional(),
 });
-const UserBody = z.object({
-  username: z.string().regex(/^[a-z0-9._-]{2,40}$/),
-  displayName: z.string().min(1).max(80),
-  password: z.string().min(8),
-  isAdmin: z.boolean().default(false),
-});
-const UserPatch = z.object({
-  displayName: z.string().min(1).max(80).optional(),
-  password: z.string().min(8).optional(),
-  isAdmin: z.boolean().optional(),
-});
+const GroupChannelBody = z.object({ groupName: z.string().trim().min(1).max(120), channelId: z.number().int() });
+const GrantBody = z.object({ userId: z.string().min(1), channelId: z.number().int() });
 const VersionBody = z.object({ version: z.string().nullable() });
 const DefaultFirmwareBody = z.object({ board: z.string().min(1), version: z.string().nullable() });
 
-export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
+export function apiRoutes({ db, cfg, hub, disconnect, access, verifyGoogle }: ApiDeps) {
   const app = new Hono<AppEnv>();
 
   /** Load a device the current user may manage (its owner, or any admin). */
@@ -126,14 +123,44 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
 
   // ---- auth ---------------------------------------------------------------
 
-  app.post('/auth/login', zValidator('json', Login), async (c) => {
-    const { username, password } = c.req.valid('json');
-    const [user] = await db.select().from(users).where(eq(users.username, username.toLowerCase()));
-    if (!user || !(await verifyPassword(password, user.passwordHash))) {
-      return c.json({ error: 'Invalid username or password' }, 401);
+  const REFUSALS: Record<SignInRefusal, string> = {
+    'not-allowed': "That account isn't managed by one of ALLOWED_DOMAINS",
+    'not-a-member': "The member database doesn't know that account",
+    ambiguous: 'Several members share that email in the member database',
+    unavailable: "The member database can't be reached; try again later",
+  };
+
+  /** What the login page offers. */
+  app.get('/auth/options', (c) => c.json({ googleClientId: cfg.GOOGLE_CLIENT_ID ?? null, dev: cfg.DEV_LOGIN }));
+
+  /** Exchanges the ID token from Google's sign-in button for a session (see google.ts). */
+  app.post('/auth/google', zValidator('json', z.object({ credential: z.string().min(1) })), async (c) => {
+    if (!verifyGoogle) return c.json({ error: 'Google sign-in is not configured' }, 404);
+    let who;
+    try {
+      who = await verifyGoogle(c.req.valid('json').credential);
+    } catch (err) {
+      console.warn('Google sign-in failed:', (err as Error).message);
+      return c.json({ error: "Google sign-in couldn't be verified. Try again." }, 401);
     }
-    await createSession(db, c, user.id);
-    return c.json({ id: user.id, username: user.username, displayName: user.displayName, isAdmin: user.isAdmin });
+    const login = await access.signIn(who.email, who.name, who.hostedDomain);
+    if (typeof login === 'string') {
+      console.log(`Refused sign-in for ${who.email} (hd=${who.hostedDomain ?? 'none'}): ${login}`);
+      return c.json({ error: REFUSALS[login], code: login }, login === 'unavailable' ? 503 : 403);
+    }
+    await createSession(db, c, login);
+    return c.json({ ok: true });
+  });
+
+  /** DEV_LOGIN only: sign in as any email, under the same rules as Google sign-in. */
+  app.post('/auth/dev-login', zValidator('json', DevLogin), async (c) => {
+    if (!cfg.DEV_LOGIN) return c.json({ error: 'Not found' }, 404);
+    const { email, name } = c.req.valid('json');
+    // As if Google said a Workspace manages the address's domain.
+    const login = await access.signIn(email, name, email.toLowerCase().split('@').pop());
+    if (typeof login === 'string') return c.json({ error: REFUSALS[login], code: login }, login === 'unavailable' ? 503 : 403);
+    await createSession(db, c, login);
+    return c.json({ ok: true });
   });
 
   app.post('/auth/logout', async (c) => {
@@ -142,21 +169,6 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
   });
 
   app.get('/auth/me', (c) => c.json(c.var.user));
-
-  app.put(
-    '/auth/password',
-    requireUser,
-    zValidator('json', z.object({ current: z.string(), password: z.string().min(8) })),
-    async (c) => {
-      const body = c.req.valid('json');
-      const [user] = await db.select().from(users).where(eq(users.id, c.var.user!.id));
-      if (!user || !(await verifyPassword(body.current, user.passwordHash))) {
-        return c.json({ error: 'Current password is wrong' }, 400);
-      }
-      await db.update(users).set({ passwordHash: await hashPassword(body.password) }).where(eq(users.id, user.id));
-      return c.json({ ok: true });
-    },
-  );
 
   // ---- ingest (machine-to-machine) ---------------------------------------
 
@@ -206,7 +218,7 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
         claimedAt: new Date(),
       })
       .where(eq(devices.id, dev.id));
-    await hub.logEvent(dev.id, 'claimed', user.username);
+    await hub.logEvent(dev.id, 'claimed', user.email);
     await hub.sendConfig(dev.id);
     return c.json({ id: dev.id });
   });
@@ -260,6 +272,16 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
   app.patch('/devices/:id', zValidator('json', DevicePatch), async (c) => {
     const dev = await ownedDevice(c.var.user!, c.req.param('id'));
     const body = c.req.valid('json');
+    if (body.channelIds && !c.var.user!.isAdmin) {
+      // Only check additions: keeping a channel an admin set up for them is fine until the next sync.
+      const allowed = await access.allowedChannels(c.var.user!.id);
+      const current = (await channelIdsByDevice([dev.id])).get(dev.id) ?? [];
+      const denied = body.channelIds.filter((id) => allowed !== 'all' && !allowed.has(id) && !current.includes(id));
+      if (denied.length) {
+        const names = await db.select({ name: channels.name }).from(channels).where(inArray(channels.id, denied));
+        return c.json({ error: `You can't join: ${names.map((n) => n.name).join(', ')}` }, 403);
+      }
+    }
     if (body.name !== undefined) await db.update(devices).set({ name: body.name }).where(eq(devices.id, dev.id));
     if (body.channelIds) {
       await db.transaction(async (tx) => {
@@ -287,7 +309,7 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
     const dev = await ownedDevice(c.var.user!, c.req.param('id'));
     await db.delete(deviceChannels).where(eq(deviceChannels.deviceId, dev.id));
     await db.update(devices).set({ ownerId: null, claimedAt: null, name: '' }).where(eq(devices.id, dev.id));
-    await hub.logEvent(dev.id, 'released', c.var.user!.username);
+    await hub.logEvent(dev.id, 'released', c.var.user!.email);
     await hub.sendConfig(dev.id);
     return c.json({ ok: true });
   });
@@ -300,7 +322,7 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
       .update(devices)
       .set({ secretHash: null, ownerId: null, claimedAt: null, name: '' })
       .where(eq(devices.id, id));
-    await hub.logEvent(id, 'reset', c.var.user!.username);
+    await hub.logEvent(id, 'reset', c.var.user!.email);
     disconnect(id);
     return c.json({ ok: true });
   });
@@ -334,6 +356,62 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
 
   app.get('/channels', async (c) => c.json(await db.select().from(channels).orderBy(channels.name)));
 
+  /** Channel ids the signed-in user may subscribe their pagers to (checks their groups if stale). */
+  app.get('/me/channels', async (c) => {
+    const allowed = await access.allowedChannels(c.var.user!.id);
+    const all = await db.select({ id: channels.id }).from(channels);
+    return c.json(all.map((ch) => ch.id).filter((id) => allowed === 'all' || allowed.has(id)));
+  });
+
+  // ---- channel access (admin) -------------------------------------------------
+
+  app.get('/access', requireAdmin, async (c) =>
+    c.json({
+      memberDatabase: !!access.directory,
+      syncHours: cfg.MEMBER_SYNC_HOURS,
+      lastSync: await access.lastSync(),
+      groupChannels: await db.select().from(groupChannels).orderBy(groupChannels.groupName),
+      grants: await db
+        .select({ userId: channelGrants.userId, name: users.displayName, channelId: channelGrants.channelId, createdAt: channelGrants.createdAt })
+        .from(channelGrants)
+        .innerJoin(users, eq(users.id, channelGrants.userId))
+        .orderBy(users.displayName),
+    }),
+  );
+
+  app.post('/access/groups', requireAdmin, zValidator('json', GroupChannelBody), async (c) => {
+    const { groupName, channelId } = c.req.valid('json');
+    const existing = await db.select().from(groupChannels).where(eq(groupChannels.channelId, channelId));
+    if (!existing.some((g) => g.groupName.toLowerCase() === groupName.toLowerCase())) {
+      await db.insert(groupChannels).values({ groupName, channelId });
+    }
+    return c.json({ ok: true }, 201);
+  });
+
+  app.delete('/access/groups', requireAdmin, zValidator('json', GroupChannelBody), async (c) => {
+    const { groupName, channelId } = c.req.valid('json');
+    await db
+      .delete(groupChannels)
+      .where(and(eq(groupChannels.groupName, groupName), eq(groupChannels.channelId, channelId)));
+    return c.json({ removed: await access.enforce() });
+  });
+
+  app.post('/access/grants', requireAdmin, zValidator('json', GrantBody), async (c) => {
+    const [user] = await db.select({ id: users.id }).from(users).where(eq(users.id, c.req.valid('json').userId));
+    if (!user) return c.json({ error: 'No such user' }, 404);
+    await db.insert(channelGrants).values(c.req.valid('json')).onConflictDoNothing();
+    return c.json({ ok: true }, 201);
+  });
+
+  app.delete('/access/grants', requireAdmin, zValidator('json', GrantBody), async (c) => {
+    const { userId, channelId } = c.req.valid('json');
+    await db.delete(channelGrants).where(and(eq(channelGrants.userId, userId), eq(channelGrants.channelId, channelId)));
+    return c.json({ removed: await access.enforce() });
+  });
+
+  /** Runs the member sync now instead of waiting for the next scheduled one. */
+  app.post('/access/sync', requireAdmin, async (c) => c.json(await access.sync()));
+
   app.post('/channels', requireAdmin, zValidator('json', ChannelBody), async (c) => {
     const [row] = await db.insert(channels).values(c.req.valid('json')).returning();
     return c.json(row, 201);
@@ -352,9 +430,19 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
   });
 
   // ---- pages --------------------------------------------------------------
+  // Members see pages for the channels they may join (access.ts), and only their own pagers'
+  // deliveries and acks; admins see everything.
+
+  /** For members, a delivery condition matching only their own pagers. */
+  const ownDeliveries = (user: SessionUser) =>
+    user.isAdmin
+      ? undefined
+      : inArray(deliveries.deviceId, db.select({ id: devices.id }).from(devices).where(eq(devices.ownerId, user.id)));
 
   app.get('/pages', async (c) => {
     const limit = Math.min(Number(c.req.query('limit') ?? 50), 200);
+    const allowed = await access.allowedChannels(c.var.user!.id);
+    if (allowed !== 'all' && allowed.size === 0) return c.json([]);
     const rows = await db
       .select({
         id: pages.id,
@@ -371,7 +459,8 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
       })
       .from(pages)
       .innerJoin(channels, eq(channels.id, pages.channelId))
-      .leftJoin(deliveries, eq(deliveries.pageId, pages.id))
+      .leftJoin(deliveries, and(eq(deliveries.pageId, pages.id), ownDeliveries(c.var.user!)))
+      .where(allowed === 'all' ? undefined : inArray(pages.channelId, [...allowed]))
       .groupBy(pages.id, channels.name)
       .orderBy(desc(pages.createdAt))
       .limit(limit);
@@ -381,7 +470,10 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
   app.get('/pages/:id', async (c) => {
     const id = Number(c.req.param('id'));
     const [page] = await db.select().from(pages).where(eq(pages.id, id));
-    if (!page) return c.notFound();
+    const allowed = page && (await access.allowedChannels(c.var.user!.id));
+    if (!page || (allowed !== 'all' && !allowed!.has(page.channelId))) {
+      return c.json({ error: 'Page not found' }, 404);
+    }
     const rows = await db
       .select({
         deviceId: deliveries.deviceId,
@@ -394,7 +486,7 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
       .from(deliveries)
       .innerJoin(devices, eq(devices.id, deliveries.deviceId))
       .leftJoin(users, eq(users.id, devices.ownerId))
-      .where(eq(deliveries.pageId, id))
+      .where(and(eq(deliveries.pageId, id), ownDeliveries(c.var.user!)))
       .orderBy(users.displayName);
     return c.json({ ...page, deliveries: rows });
   });
@@ -530,39 +622,25 @@ export function apiRoutes({ db, cfg, hub, disconnect }: ApiDeps) {
 
   // ---- users --------------------------------------------------------------
 
-  const userColumns = {
-    id: users.id,
-    username: users.username,
-    displayName: users.displayName,
-    isAdmin: users.isAdmin,
-    createdAt: users.createdAt,
-  };
-
-  app.get('/users', requireAdmin, async (c) =>
-    c.json(await db.select(userColumns).from(users).orderBy(users.displayName)),
-  );
-
-  app.post('/users', requireAdmin, zValidator('json', UserBody), async (c) => {
-    const { password, ...rest } = c.req.valid('json');
-    const [existing] = await db.select({ id: users.id }).from(users).where(eq(users.username, rest.username));
-    if (existing) return c.json({ error: 'Username taken' }, 409);
-    const [row] = await db
-      .insert(users)
-      .values({ ...rest, passwordHash: await hashPassword(password) })
-      .returning(userColumns);
-    return c.json(row, 201);
+  /** Members who have signed in, with the Google accounts they use. */
+  app.get('/users', requireAdmin, async (c) => {
+    const rows = await db.select().from(users).orderBy(users.displayName);
+    const logins = await db.select().from(userLogins).orderBy(userLogins.email);
+    return c.json(
+      rows.map((u) => {
+        const mine = logins.filter((l) => l.userId === u.id);
+        return {
+          ...u,
+          logins: mine.map(({ email, lastLoginAt }) => ({ email, lastLoginAt })),
+          isAdmin: mine.some((l) => cfg.SITE_ADMINS.includes(l.email)),
+        };
+      }),
+    );
   });
 
-  app.patch('/users/:id', requireAdmin, zValidator('json', UserPatch), async (c) => {
-    const { password, ...rest } = c.req.valid('json');
-    const set = { ...rest, ...(password ? { passwordHash: await hashPassword(password) } : {}) };
-    if (Object.keys(set).length === 0) return c.json({ ok: true });
-    await db.update(users).set(set).where(eq(users.id, Number(c.req.param('id'))));
-    return c.json({ ok: true });
-  });
-
+  /** Forgets someone: their pagers become unclaimed. They're recreated if they sign in again. */
   app.delete('/users/:id', requireAdmin, async (c) => {
-    const id = Number(c.req.param('id'));
+    const id = c.req.param('id');
     if (id === c.var.user!.id) return c.json({ error: "You can't delete yourself" }, 400);
     await db.delete(users).where(eq(users.id, id));
     return c.json({ ok: true });

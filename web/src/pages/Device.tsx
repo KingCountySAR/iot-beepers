@@ -11,6 +11,7 @@ export function DevicePage() {
   const { user } = useAuth();
   const device = useApi<DeviceDetail>(`/devices/${id}`, 5000);
   const channels = useApi<Channel[]>('/channels');
+  const allowed = useApi<number[]>('/me/channels');
   const fw = useApi<FirmwareList>(user?.isAdmin ? '/firmware' : null);
 
   const [name, setName] = useState('');
@@ -35,6 +36,9 @@ export function DevicePage() {
     setDirty(false);
     await device.reload();
   };
+  // Channels this person may join, plus any the pager is already on (e.g. set up by an admin).
+  const shown = channels.data?.filter((ch) => allowed.data?.includes(ch.id) || d.channelIds.includes(ch.id));
+
   const toggle = (chId: number) => {
     setDirty(true);
     setSelected((s) => (s.includes(chId) ? s.filter((x) => x !== chId) : [...s, chId]));
@@ -69,8 +73,14 @@ export function DevicePage() {
             </label>
             <fieldset>
               <legend>Channels</legend>
-              {channels.data?.length === 0 && <p className="muted">No channels have been created yet.</p>}
-              {channels.data?.map((ch) => (
+              {shown?.length === 0 && (
+                <p className="muted">
+                  {channels.data?.length
+                    ? "You aren't in any groups that can join a channel. Ask an admin if that's wrong."
+                    : 'No channels have been created yet.'}
+                </p>
+              )}
+              {shown?.map((ch) => (
                 <label key={ch.id} className="check">
                   <input type="checkbox" checked={selected.includes(ch.id)} onChange={() => toggle(ch.id)} />
                   {ch.name}

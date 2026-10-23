@@ -13,7 +13,7 @@ describe('device lifecycle', () => {
   beforeAll(async () => {
     srv = await startServer();
     admin = httpClient(srv.url);
-    expect((await admin('POST', '/api/auth/login', { username: 'admin', password: 'admin-pass' })).status).toBe(200);
+    expect((await admin('POST', '/api/auth/dev-login', { email: 'admin@example.com', name: 'Administrator' })).status).toBe(200);
     const ch = await admin('POST', '/api/channels', { slug: 'callout', name: 'Callouts' });
     expect(ch.status).toBe(201);
     channelId = ch.body.id;
@@ -123,11 +123,8 @@ describe('device lifecycle', () => {
   });
 
   it('members only see their own devices', async () => {
-    expect(
-      (await admin('POST', '/api/users', { username: 'sam', displayName: 'Sam', password: 'password1' })).status,
-    ).toBe(201);
     const sam = httpClient(srv.url);
-    await sam('POST', '/api/auth/login', { username: 'sam', password: 'password1' });
+    expect((await sam('POST', '/api/auth/dev-login', { email: 'Sam@Example.com', name: 'Sam' })).status).toBe(200);
     expect((await sam('GET', '/api/devices')).body).toEqual([]);
     expect((await sam('GET', `/api/devices/${DEV}`)).status).toBe(404);
     expect((await sam('POST', '/api/pages', { channelId, body: 'x' })).status).toBe(403);

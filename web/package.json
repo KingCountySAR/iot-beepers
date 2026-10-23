@@ -17,6 +17,7 @@
     "vite": "^8.3.5"
   },
   "dependencies": {
+    "@react-oauth/google": "0.13.5",
     "esptool-js": "0.7.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

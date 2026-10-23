@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router';
 import { api, type User } from './api';
-import { AccountPage } from './pages/Account';
+import { AccessPage } from './pages/Access';
 import { ChannelsPage } from './pages/Channels';
 import { DashboardPage } from './pages/Dashboard';
 import { DevicePage } from './pages/Device';
@@ -57,12 +57,13 @@ export function App() {
             <>
               <NavLink to="/channels">Channels</NavLink>
               <NavLink to="/firmware">Firmware</NavLink>
+              <NavLink to="/access">Access</NavLink>
               <NavLink to="/users">Users</NavLink>
             </>
           )}
         </nav>
         <span className="spacer" />
-        <NavLink to="/account">{user.displayName}</NavLink>
+        <span title={user.email}>{user.displayName}</span>
         <button className="link" onClick={logout}>
           Log out
         </button>
@@ -75,11 +76,11 @@ export function App() {
           <Route path="/pages" element={<PagesPage />} />
           <Route path="/pages/:id" element={<PagePage />} />
           <Route path="/flash" element={<FlashPage />} />
-          <Route path="/account" element={<AccountPage />} />
           {user.isAdmin && (
             <>
               <Route path="/channels" element={<ChannelsPage />} />
               <Route path="/firmware" element={<FirmwarePage />} />
+              <Route path="/access" element={<AccessPage />} />
               <Route path="/users" element={<UsersPage />} />
             </>
           )}

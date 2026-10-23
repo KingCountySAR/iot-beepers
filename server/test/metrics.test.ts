@@ -13,7 +13,7 @@ describe('prometheus metrics', () => {
   beforeAll(async () => {
     srv = await startServer();
     admin = httpClient(srv.url);
-    await admin('POST', '/api/auth/login', { username: 'admin', password: 'admin-pass' });
+    await admin('POST', '/api/auth/dev-login', { email: 'admin@example.com', name: 'Administrator' });
     const ch = await admin('POST', '/api/channels', { slug: 'callout', name: 'Callouts' });
     const reg = await admin('POST', '/api/device/register', { id: DEV, secret: SECRET, fw: '0.1.0' });
     await admin('POST', '/api/pair', { code: reg.body.claimCode, name: 'Bedside' });

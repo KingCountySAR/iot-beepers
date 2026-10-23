@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
 
 export interface User {
-  id: number;
-  username: string;
+  /** Member database id. */
+  id: string;
+  /** The Google account this session signed in with. */
+  email: string;
   displayName: string;
   isAdmin: boolean;
 }
@@ -10,7 +12,7 @@ export interface User {
 export interface Device {
   id: string;
   name: string;
-  ownerId: number | null;
+  ownerId: string | null;
   ownerName: string | null;
   claimedAt: string | null;
   createdAt: string;

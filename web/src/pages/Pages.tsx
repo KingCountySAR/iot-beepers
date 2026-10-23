@@ -12,6 +12,7 @@ export function PagesPage() {
     <section>
       {user?.isAdmin && <SendPage onSent={pages.reload} />}
       <h1>Page history</h1>
+      {!user?.isAdmin && <p className="muted">Received and acked count your own pagers.</p>}
       <ErrorText error={pages.error} />
       <table>
         <thead>
@@ -107,6 +108,7 @@ function SendPage({ onSent }: { onSent: () => void }) {
 }
 
 export function PagePage() {
+  const { user } = useAuth();
   const { id } = useParams();
   const page = useApi<PageDetail>(`/pages/${id}`, 3000);
   const p = page.data;
@@ -123,6 +125,7 @@ export function PagePage() {
       <p className="muted">
         Sent {fmtTime(p.createdAt)} via {p.source} · expires {fmtTime(p.expiresAt)}
       </p>
+      {!user?.isAdmin && <h2>Your pagers</h2>}
       <table>
         <thead>
           <tr>

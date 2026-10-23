@@ -28,7 +28,7 @@ export function createApp(deps: ApiDeps & { logRequests?: boolean }) {
 
   app.route('/api/device', deviceRoutes(db, cfg));
 
-  app.use('/api/*', csrf(), sessionMiddleware(db));
+  app.use('/api/*', csrf(), sessionMiddleware(db, deps.cfg));
   app.route('/api', apiRoutes(deps));
   app.all('/api/*', (c) => c.json({ error: 'Not found' }, 404));
 

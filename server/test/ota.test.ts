@@ -96,7 +96,7 @@ describe('OTA rollout', () => {
   beforeAll(async () => {
     srv = await startServer();
     admin = httpClient(srv.url);
-    await admin('POST', '/api/auth/login', { username: 'admin', password: 'admin-pass' });
+    await admin('POST', '/api/auth/dev-login', { email: 'admin@example.com', name: 'Administrator' });
     await admin('POST', '/api/device/register', { id: XIAO, secret: SECRET });
     await admin('POST', '/api/device/register', { id: DEVKIT, secret: SECRET });
   });

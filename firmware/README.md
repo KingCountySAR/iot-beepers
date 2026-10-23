@@ -79,7 +79,7 @@ Avoid GPIO 6–11 (flash), 1 and 3 (console), and 34–39 (inputs only, no pull-
 If a new image can't reach the server within 5 minutes of booting, the pager rolls back automatically and reports `ota_rollback`.
 
 ## Developing against a local server
-Set `PUBLIC_URL=http://<your LAN IP>:4100` in `server/.env` and run `npm run dev`. In the pager's setup portal, enter `http://<your LAN IP>:4100` as the server (Vite proxies `/api` and `/mqtt` to the server). Plain HTTP and `ws://` work for development. Use the Flash page from `http://localhost:4100` on the dev machine itself, since browsers only allow Web Serial on localhost or HTTPS.
+Set `PUBLIC_URL=http://<your LAN IP>:4100` in `server/.env.local` and run `npm run dev`. In the pager's setup portal, enter `http://<your LAN IP>:4100` as the server (Vite proxies `/api` and `/mqtt` to the server). Plain HTTP and `ws://` work for development. Use the Flash page from `http://localhost:4100` on the dev machine itself, since browsers only allow Web Serial on localhost or HTTPS.
 
 ## Layout
 | File | Purpose |

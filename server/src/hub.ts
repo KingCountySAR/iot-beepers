@@ -155,7 +155,7 @@ export class Hub {
     title?: string;
     body: string;
     source: string;
-    createdBy?: number | null;
+    createdBy?: string | null;
     ttlMin?: number;
   }) {
     const ttl = input.ttlMin ?? this.cfg.PAGE_TTL_MIN;

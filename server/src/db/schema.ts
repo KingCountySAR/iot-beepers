@@ -19,19 +19,30 @@ const bytea = customType<{ data: Buffer; driverData: Buffer | Uint8Array }>({
   fromDriver: (v) => Buffer.from(v),
 });
 
+/** A team member, keyed by their member database id (see memberdb.ts). */
 export const users = pgTable('users', {
-  id: serial('id').primaryKey(),
-  username: text('username').notNull().unique(),
+  id: text('id').primaryKey(),
   displayName: text('display_name').notNull(),
-  passwordHash: text('password_hash').notNull(),
-  isAdmin: boolean('is_admin').notNull().default(false),
+  /** Groups from the member database (see memberdb.ts), as of groupsCheckedAt. */
+  groups: text('groups').array().notNull().default([]),
+  groupsCheckedAt: ts('groups_checked_at'),
   createdAt: ts('created_at').notNull().defaultNow(),
+});
+
+/** Google accounts a member signs in with; a member can have several. */
+export const userLogins = pgTable('user_logins', {
+  /** Lowercase Google account email. */
+  email: text('email').primaryKey(),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  lastLoginAt: ts('last_login_at').notNull().defaultNow(),
 });
 
 export const sessions = pgTable('sessions', {
   /** sha256 of the session token; the raw token only lives in the cookie. */
   tokenHash: text('token_hash').primaryKey(),
-  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  /** The Google account this session signed in with. */
+  email: text('email').notNull(),
   expiresAt: ts('expires_at').notNull(),
 });
 
@@ -43,12 +54,34 @@ export const channels = pgTable('channels', {
   createdAt: ts('created_at').notNull().defaultNow(),
 });
 
+/** Members of a member-database group may subscribe their pagers to the channel. */
+export const groupChannels = pgTable(
+  'group_channels',
+  {
+    /** As the member database spells it; matched ignoring case. */
+    groupName: text('group_name').notNull(),
+    channelId: integer('channel_id').notNull().references(() => channels.id, { onDelete: 'cascade' }),
+  },
+  (t) => [primaryKey({ columns: [t.groupName, t.channelId] })],
+);
+
+/** Admin-granted access to a channel for one person, regardless of their groups. */
+export const channelGrants = pgTable(
+  'channel_grants',
+  {
+    userId: text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+    channelId: integer('channel_id').notNull().references(() => channels.id, { onDelete: 'cascade' }),
+    createdAt: ts('created_at').notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.channelId] })],
+);
+
 export const devices = pgTable('devices', {
   /** Factory-unique id derived from the ESP32 MAC, e.g. "a1b2c3d4e5f6". */
   id: text('id').primaryKey(),
   /** sha256 of the device's random secret. Null means "accept the next secret" (admin reset). */
   secretHash: text('secret_hash'),
-  ownerId: integer('owner_id').references(() => users.id, { onDelete: 'set null' }),
+  ownerId: text('owner_id').references(() => users.id, { onDelete: 'set null' }),
   name: text('name').notNull().default(''),
   claimCode: text('claim_code').unique(),
   claimExpiresAt: ts('claim_expires_at'),
@@ -104,7 +137,7 @@ export const pages = pgTable(
     body: text('body').notNull(),
     /** Where the page came from: "web", "api", later "email"/"sms". */
     source: text('source').notNull(),
-    createdBy: integer('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdBy: text('created_by').references(() => users.id, { onDelete: 'set null' }),
     createdAt: ts('created_at').notNull().defaultNow(),
     expiresAt: ts('expires_at').notNull(),
   },

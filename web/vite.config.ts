@@ -11,9 +11,11 @@ export default defineConfig({
     port: 4100,
     strictPort: true,
     host: true,
+    // Keep the browser's Host (the shorthand form would rewrite it to the server's), so the
+    // server sees the address in use, e.g. for Google's redirect URI. xfwd adds X-Forwarded-*.
     proxy: {
-      '/api': server,
-      '/mqtt': { target: server, ws: true },
+      '/api': { target: server, changeOrigin: false, xfwd: true },
+      '/mqtt': { target: server, ws: true, changeOrigin: false, xfwd: true },
       '/healthz': server,
     },
   },

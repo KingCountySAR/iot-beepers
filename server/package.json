@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --watch --import tsx --env-file=dev.env --env-file-if-exists=.env src/index.ts",
+    "dev": "node --watch --import tsx --env-file=dev.env --env-file-if-exists=.env --env-file-if-exists=.env.local src/index.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/index.js",
     "test": "vitest run",
@@ -16,6 +16,7 @@
     "@hono/zod-validator": "^0.9.1",
     "aedes": "^1.2.0",
     "drizzle-orm": "^0.45.4",
+    "google-auth-library": "11.2.0",
     "hono": "^4.13.13",
     "pg": "^8.23.1",
     "prom-client": "^15.1.3",

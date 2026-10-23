@@ -5,15 +5,8 @@
     {
       "idx": 0,
       "version": "7",
-      "when": 1792567710847,
+      "when": 1792740653332,
       "tag": "0000_init",
-      "breakpoints": true
-    },
-    {
-      "idx": 1,
-      "version": "7",
-      "when": 1792611873960,
-      "tag": "0001_firmware_boards",
       "breakpoints": true
     }
   ]

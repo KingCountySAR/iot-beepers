@@ -4,12 +4,14 @@ import pg from 'pg';
 import type { Server } from 'node:http';
 import { serve } from '@hono/node-server';
 import mqtt from 'mqtt';
+import { Access } from '../src/access.js';
 import { createApp } from '../src/app.js';
-import { ensureBootstrapAdmin } from '../src/auth.js';
 import { createBroker } from '../src/broker.js';
 import { loadConfig } from '../src/config.js';
 import { openDatabase } from '../src/db/index.js';
 import { Hub, type Publish } from '../src/hub.js';
+import type { VerifyGoogleToken } from '../src/google.js';
+import type { MemberDirectory } from '../src/memberdb.js';
 import { Metrics } from '../src/metrics.js';
 
 /**
@@ -30,17 +32,18 @@ async function testDatabaseUrl(): Promise<string | undefined> {
 }
 
 /** Boots the full server (HTTP + MQTT-over-WS) on a random port. */
-export async function startServer(env: Record<string, string> = {}) {
+export async function startServer(env: Record<string, string> = {}, opts: { directory?: MemberDirectory; verifyGoogle?: VerifyGoogleToken } = {}) {
   const DATABASE_URL = await testDatabaseUrl();
   const base = loadConfig({
     PGLITE_DIR: 'memory://',
-    ADMIN_PASSWORD: 'admin-pass',
+    SITE_ADMINS: 'admin@example.com',
+    ALLOWED_DOMAINS: 'example.com',
+    DEV_LOGIN: 'true',
     INGEST_TOKEN: 'ingest-token',
     ...(DATABASE_URL ? { DATABASE_URL } : {}),
     ...env,
   });
   const { db, close } = await openDatabase(base);
-  await ensureBootstrapAdmin(db, base.ADMIN_USERNAME, base.ADMIN_PASSWORD);
 
   let publish: Publish = async () => {};
   // PUBLIC_URL is only known after listening; the hub reads cfg lazily so patch it in place.
@@ -48,7 +51,8 @@ export async function startServer(env: Record<string, string> = {}) {
   const hub = new Hub(db, cfg, (t, p) => publish(t, p), new Metrics(db));
   const broker = await createBroker(db, hub);
   publish = broker.publish;
-  const app = createApp({ db, cfg, hub, disconnect: broker.disconnect });
+  const access = new Access(db, cfg, hub, opts.directory ?? null);
+  const app = createApp({ db, cfg, hub, disconnect: broker.disconnect, access, verifyGoogle: opts.verifyGoogle ?? null });
 
   const server = await new Promise<Server>((resolve) => {
     const s = serve({ fetch: app.fetch, port: 0 }, () => resolve(s as Server)) as Server;
@@ -61,6 +65,7 @@ export async function startServer(env: Record<string, string> = {}) {
     url: cfg.PUBLIC_URL,
     db,
     hub,
+    access,
     async stop() {
       await new Promise<void>((r) => broker.broker.close(() => r()));
       server.closeAllConnections();
