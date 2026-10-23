@@ -7,6 +7,7 @@
  * Everything that changes state funnels through one event queue handled by the main
  * task; the UI, Wi-Fi and MQTT modules only post to it.
  */
+#include <stdlib.h>
 #include <string.h>
 #include "esp_app_desc.h"
 #include "esp_attr.h"
@@ -57,6 +58,7 @@ typedef struct {
     int32_t num;
     bool flag;
     char str[16];
+    char *tune;  // heap copy of the server's RTTTL tune, or NULL; freed by the handler
 } app_event_t;
 
 static QueueHandle_t s_queue;
@@ -90,7 +92,7 @@ static int64_t now_ms(void)
 
 static void post(app_event_t ev)
 {
-    xQueueSend(s_queue, &ev, 0);
+    if (xQueueSend(s_queue, &ev, 0) != pdTRUE) free(ev.tune);
 }
 
 // ---- callbacks from other modules (run on their tasks) ----------------------------
@@ -102,11 +104,14 @@ static void cb_link_up(void) { post((app_event_t){.type = EV_LINK_UP}); }
 static void cb_link_down(void) { post((app_event_t){.type = EV_LINK_DOWN}); }
 static void cb_link_refused(void) { post((app_event_t){.type = EV_LINK_REFUSED}); }
 static void cb_config(bool claimed) { post((app_event_t){.type = EV_CONFIG, .flag = claimed}); }
-static void cb_page(int32_t id, bool alarm) { post((app_event_t){.type = EV_PAGE, .num = id, .flag = alarm}); }
-
-static void cb_command(const char *cmd)
+static void cb_page(int32_t id, bool alarm, const char *tune)
 {
-    app_event_t ev = {.type = EV_COMMAND};
+    post((app_event_t){.type = EV_PAGE, .num = id, .flag = alarm, .tune = tune ? strdup(tune) : NULL});
+}
+
+static void cb_command(const char *cmd, const char *tune)
+{
+    app_event_t ev = {.type = EV_COMMAND, .tune = tune ? strdup(tune) : NULL};
     strlcpy(ev.str, cmd, sizeof(ev.str));
     post(ev);
 }
@@ -126,7 +131,7 @@ static bool seen_recently(int32_t id)
     return false;
 }
 
-static void handle_page(int32_t id, bool alarm)
+static void handle_page(int32_t id, bool alarm, const char *tune)
 {
     // Always confirm receipt, even for duplicates, so the server stops replaying it.
     link_send_ack(id, false);
@@ -142,7 +147,7 @@ static void handle_page(int32_t id, bool alarm)
         app.last_reminder_at = app.alarm_started_at;
         app.reminders_until = app.alarm_started_at + CONFIG_NOTIFIER_ALARM_SECONDS * 1000LL +
                               CONFIG_NOTIFIER_REMINDER_MINUTES * 60 * 1000LL;
-        if (ui_armed()) ui_play(SOUND_PAGE);
+        if (ui_armed()) ui_play_tune(SOUND_PAGE, tune);
     }
 }
 
@@ -186,10 +191,10 @@ static void handle_button(button_event_t e)
     }
 }
 
-static void handle_command(const char *cmd)
+static void handle_command(const char *cmd, const char *tune)
 {
     if (strcmp(cmd, "test") == 0) {
-        ui_play(SOUND_TEST);  // deliberately ignores the quiet switch: it's a test
+        ui_play_tune(SOUND_TEST, tune);  // deliberately ignores the quiet switch: it's a test
     } else if (strcmp(cmd, "identify") == 0) {
         app.identify_until = now_ms() + IDENTIFY_MS;
     } else if (strcmp(cmd, "reboot") == 0) {
@@ -229,12 +234,13 @@ static void handle_event(const app_event_t *ev)
         app.claimed = ev->flag;
         break;
     case EV_PAGE:
-        handle_page(ev->num, ev->flag);
+        handle_page(ev->num, ev->flag, ev->tune);
         break;
     case EV_COMMAND:
-        handle_command(ev->str);
+        handle_command(ev->str, ev->tune);
         break;
     }
+    free(ev->tune);
 }
 
 // ---- periodic work --------------------------------------------------------------------

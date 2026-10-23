@@ -66,6 +66,15 @@ menu "SAR Notifier"
                 Only for driving a piezo through an H-bridge: set this to the second bridge
                 input. It gets the inverted square wave, doubling the voltage across the
                 piezo. Not needed for a transistor-switched buzzer or transducer.
+
+        config NOTIFIER_ALARM_ACTIVE_LOW
+            bool "Alarm output is active low"
+            default n
+            help
+                For buzzer modules with a PNP transistor (often marked "low level trigger";
+                an S8550 is marked 2TY). The output idles high so the buzzer coil isn't
+                powered between sounds. Power such a module's VCC from 3.3 V, or a high
+                output can't turn the transistor off.
     endmenu
 
     choice NOTIFIER_ALARM_DRIVE

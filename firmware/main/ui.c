@@ -1,5 +1,9 @@
 #include "ui.h"
 
+#include <ctype.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
 #include "driver/gpio.h"
 #include "driver/ledc.h"
 #include "esp_log.h"
@@ -52,6 +56,7 @@ static const struct {
 typedef struct {
     uint16_t on_ms;
     uint16_t off_ms;
+    uint16_t freq_hz;  // 0 = CONFIG_NOTIFIER_ALARM_FREQ_HZ
 } beep_t;
 
 typedef struct {
@@ -60,11 +65,11 @@ typedef struct {
     uint32_t loop_for_ms;  // 0 = play once
 } sound_def_t;
 
-static const beep_t BEEPS_ALARM[] = {{150, 100}, {150, 100}, {150, 600}};
-static const beep_t BEEPS_SINGLE[] = {{120, 0}};
-static const beep_t BEEPS_CHIRP[] = {{60, 0}};
-static const beep_t BEEPS_DOUBLE[] = {{60, 100}, {60, 0}};
-static const beep_t BEEPS_TINY[] = {{25, 0}};
+static const beep_t BEEPS_ALARM[] = {{150, 100, 0}, {150, 100, 0}, {150, 600, 0}};
+static const beep_t BEEPS_SINGLE[] = {{120, 0, 0}};
+static const beep_t BEEPS_CHIRP[] = {{60, 0, 0}};
+static const beep_t BEEPS_DOUBLE[] = {{60, 100, 0}, {60, 0, 0}};
+static const beep_t BEEPS_TINY[] = {{25, 0, 0}};
 
 static const sound_def_t SOUNDS[] = {
     [SOUND_PAGE] = {BEEPS_ALARM, 3, CONFIG_NOTIFIER_ALARM_SECONDS * 1000},
@@ -74,6 +79,69 @@ static const sound_def_t SOUNDS[] = {
     [SOUND_ERROR] = {BEEPS_DOUBLE, 2, 0},
     [SOUND_TROUBLE] = {BEEPS_TINY, 1, 0},
 };
+
+// ---- Tunes from the server, in RTTTL ("name:d=4,o=6,b=120:8c,e,g.") --------------
+
+#define TUNE_MAX_NOTES 64
+
+static float note_hz(char letter, bool sharp, int octave)
+{
+    static const int8_t SEMITONES_FROM_A[] = {0, 2, -9, -7, -5, -4, -2};  // a b c d e f g
+    int n = SEMITONES_FROM_A[letter - 'a'] + (sharp ? 1 : 0) + 12 * (octave - 4);
+    return 440.0f * powf(2.0f, n / 12.0f);
+}
+
+/** Parses an RTTTL tune into beeps. Returns the note count, or 0 if it isn't valid. */
+static int parse_rtttl(const char *s, beep_t *out, int max)
+{
+    const char *p = strchr(s, ':');  // skip the name
+    if (!p) return 0;
+    p++;
+    int def_dur = 4, def_oct = 6, bpm = 63;
+    while (*p && *p != ':') {
+        while (*p == ' ' || *p == ',') p++;
+        char key = tolower((unsigned char)*p);
+        if (!key || key == ':' || p[1] != '=') return 0;
+        int v = atoi(p + 2);
+        if (key == 'd') def_dur = v;
+        else if (key == 'o') def_oct = v;
+        else if (key == 'b') bpm = v;
+        p += 2;
+        while (isdigit((unsigned char)*p)) p++;
+    }
+    if (*p != ':' || def_dur <= 0 || bpm <= 0 || bpm > 900) return 0;
+    p++;
+
+    int n = 0;
+    while (*p && n < max) {
+        while (*p == ' ' || *p == ',') p++;
+        if (!*p) break;
+        int dur = def_dur;
+        if (isdigit((unsigned char)*p)) dur = strtol(p, (char **)&p, 10);
+        char letter = tolower((unsigned char)*p++);
+        if (dur <= 0 || !((letter >= 'a' && letter <= 'g') || letter == 'p')) return 0;
+        bool sharp = *p == '#';
+        if (sharp) p++;
+        bool dotted = false;
+        if (*p == '.') dotted = true, p++;
+        int oct = def_oct;
+        if (isdigit((unsigned char)*p)) oct = *p++ - '0';
+        if (*p == '.') dotted = true, p++;  // both "c.6" and "c6." are seen in the wild
+        if (*p && *p != ',' && *p != ' ') return 0;
+
+        int ms = 240000 / (bpm * dur);  // a whole note is 4 beats
+        if (dotted) ms += ms / 2;
+        if (ms > 5000) ms = 5000;
+        if (letter == 'p') {
+            out[n++] = (beep_t){0, ms, 0};
+        } else {
+            // A short gap after each note so repeated notes stay distinct.
+            int gap = ms / 8 < TICK_MS ? TICK_MS : ms / 8;
+            out[n++] = (beep_t){ms - gap, gap, (uint16_t)note_hz(letter, sharp, oct)};
+        }
+    }
+    return n;
+}
 
 static ui_button_cb_t s_on_button;
 static ui_switch_cb_t s_on_switch;
@@ -85,6 +153,27 @@ static volatile bool s_armed = true;
 static volatile int s_sound_request = -1;
 static volatile bool s_stop_request;
 static volatile bool s_playing;
+// A tune to play in place of the requested sound's beeps; handed over under s_tune_lock.
+static portMUX_TYPE s_tune_lock = portMUX_INITIALIZER_UNLOCKED;
+static beep_t s_tune_request[TUNE_MAX_NOTES];
+static int s_tune_request_len;
+
+static void set_tone(uint16_t freq_hz)
+{
+#if CONFIG_NOTIFIER_ALARM_DRIVE_PWM
+    static uint16_t current = CONFIG_NOTIFIER_ALARM_FREQ_HZ;
+    if (freq_hz == 0) freq_hz = CONFIG_NOTIFIER_ALARM_FREQ_HZ;
+    if (freq_hz != current && ledc_set_freq(LEDC_MODE, LEDC_TIMER, freq_hz) == ESP_OK) current = freq_hz;
+#endif
+}
+
+#ifdef CONFIG_NOTIFIER_ALARM_ACTIVE_LOW
+#define ALARM_LEVEL(on) (!(on))
+#define ALARM_INVERT 1
+#else
+#define ALARM_LEVEL(on) (on)
+#define ALARM_INVERT 0
+#endif
 
 static void alarm_output(bool on)
 {
@@ -102,7 +191,7 @@ static void alarm_output(bool on)
         if (CONFIG_NOTIFIER_ALARM_GPIO_B >= 0) ledc_stop(LEDC_MODE, LEDC_CH_B, 0);
     }
 #else
-    gpio_set_level(CONFIG_NOTIFIER_ALARM_GPIO, on);
+    gpio_set_level(CONFIG_NOTIFIER_ALARM_GPIO, ALARM_LEVEL(on));
 #endif
 }
 
@@ -155,6 +244,7 @@ static void init_outputs(void)
         .timer_sel = LEDC_TIMER,
         .duty = 0,
         .hpoint = 0,
+        .flags.output_invert = ALARM_INVERT,  // so ledc_stop's idle level 0 drives the pin high
     };
     ESP_ERROR_CHECK(ledc_channel_config(&ch));
     if (CONFIG_NOTIFIER_ALARM_GPIO_B >= 0) {
@@ -198,6 +288,8 @@ static void ui_task(void *arg)
     int64_t sw_changed = 0;
     // Sound sequencer
     const sound_def_t *snd = NULL;
+    static beep_t tune[TUNE_MAX_NOTES];
+    static sound_def_t tune_def = {.beeps = tune};
     int64_t snd_started = 0, step_started = 0;
     int step = 0;
     bool step_on = false;
@@ -250,6 +342,16 @@ static void ui_task(void *arg)
         if (req >= 0) {
             s_sound_request = -1;
             snd = &SOUNDS[req];
+            taskENTER_CRITICAL(&s_tune_lock);
+            if (s_tune_request_len) {
+                memcpy(tune, s_tune_request, s_tune_request_len * sizeof(beep_t));
+                tune_def.count = s_tune_request_len;
+                // A page's tune repeats for the whole alarm; a test plays it once.
+                tune_def.loop_for_ms = req == SOUND_TEST ? 0 : snd->loop_for_ms;
+                snd = &tune_def;
+                s_tune_request_len = 0;
+            }
+            taskEXIT_CRITICAL(&s_tune_lock);
             snd_started = step_started = now;
             step = 0;
             step_on = true;
@@ -270,7 +372,8 @@ static void ui_task(void *arg)
                 }
             }
         }
-        bool sound_on = snd && step_on;
+        bool sound_on = snd && step_on && snd->beeps[step].on_ms > 0;
+        if (sound_on) set_tone(snd->beeps[step].freq_hz);
         static bool sound_was_on;
         if (sound_on != sound_was_on) {
             alarm_output(sound_on);
@@ -308,7 +411,22 @@ void ui_set_led(led_mode_t mode)
 
 void ui_play(sound_t sound)
 {
+    taskENTER_CRITICAL(&s_tune_lock);
+    s_tune_request_len = 0;
     s_sound_request = sound;
+    taskEXIT_CRITICAL(&s_tune_lock);
+}
+
+void ui_play_tune(sound_t sound, const char *rtttl)
+{
+    beep_t notes[TUNE_MAX_NOTES];
+    int n = rtttl ? parse_rtttl(rtttl, notes, TUNE_MAX_NOTES) : 0;
+    if (rtttl && !n) ESP_LOGW(TAG, "ignoring tune that isn't valid RTTTL: %.40s", rtttl);
+    taskENTER_CRITICAL(&s_tune_lock);
+    memcpy(s_tune_request, notes, n * sizeof(beep_t));
+    s_tune_request_len = n;
+    s_sound_request = sound;
+    taskEXIT_CRITICAL(&s_tune_lock);
 }
 
 void ui_stop_sound(void)

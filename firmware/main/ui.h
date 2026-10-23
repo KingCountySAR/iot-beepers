@@ -38,6 +38,12 @@ void ui_init(ui_button_cb_t on_button, ui_switch_cb_t on_switch);
 
 void ui_set_led(led_mode_t mode);
 void ui_play(sound_t sound);
+/**
+ * Like ui_play, but plays an RTTTL tune (sent by the server) in place of the sound's own
+ * beeps, with the same looping: SOUND_PAGE repeats it, SOUND_TEST plays it once. A NULL
+ * or invalid tune falls back to the built-in beeps.
+ */
+void ui_play_tune(sound_t sound, const char *rtttl);
 void ui_stop_sound(void);
 bool ui_sound_playing(void);
 

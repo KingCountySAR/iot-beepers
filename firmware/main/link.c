@@ -97,6 +97,12 @@ static void heartbeat(void *arg)
     link_send_status(false);
 }
 
+static const char *tune_of(cJSON *json)
+{
+    cJSON *tune = cJSON_GetObjectItem(json, "tune");
+    return cJSON_IsString(tune) ? tune->valuestring : NULL;
+}
+
 static void handle_message(const char *kind, cJSON *json)
 {
     if (strcmp(kind, "config") == 0) {
@@ -104,7 +110,7 @@ static void handle_message(const char *kind, cJSON *json)
     } else if (strcmp(kind, "page") == 0) {
         cJSON *id = cJSON_GetObjectItem(json, "id");
         if (cJSON_IsNumber(id) && s_cb.on_page) {
-            s_cb.on_page((int32_t)id->valuedouble, cJSON_IsTrue(cJSON_GetObjectItem(json, "alarm")));
+            s_cb.on_page((int32_t)id->valuedouble, cJSON_IsTrue(cJSON_GetObjectItem(json, "alarm")), tune_of(json));
         }
     } else if (strcmp(kind, "cmd") == 0) {
         cJSON *cmd = cJSON_GetObjectItem(json, "cmd");
@@ -116,7 +122,7 @@ static void handle_message(const char *kind, cJSON *json)
                 s_cb.on_ota(url->valuestring, ver->valuestring);
             }
         } else if (s_cb.on_command) {
-            s_cb.on_command(cmd->valuestring);
+            s_cb.on_command(cmd->valuestring, tune_of(json));
         }
     }
 }

@@ -11,8 +11,9 @@ typedef struct {
     void (*on_connected)(void);
     void (*on_disconnected)(void);
     void (*on_config)(bool claimed);
-    void (*on_page)(int32_t id, bool alarm);
-    void (*on_command)(const char *cmd);
+    /** `tune` is the RTTTL tune to sound, or NULL for the built-in alarm. */
+    void (*on_page)(int32_t id, bool alarm, const char *tune);
+    void (*on_command)(const char *cmd, const char *tune);
     void (*on_ota)(const char *url, const char *version);
     /** Broker rejected our credentials (e.g. an admin reset the device): re-register. */
     void (*on_refused)(void);

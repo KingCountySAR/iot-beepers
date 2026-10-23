@@ -5,6 +5,8 @@ CONFIG_NOTIFIER_BOARD="devkit-v1"
 
 # GPIO 6-11 are the flash chip, 1/3 are the console, 34-39 are input-only with no pull-ups.
 CONFIG_NOTIFIER_ALARM_GPIO=25
+# Passive buzzer modules with a PNP transistor (S8550, marked 2TY) sound when the pin is low.
+CONFIG_NOTIFIER_ALARM_ACTIVE_LOW=y
 # The on-board BOOT button. GPIO0 is a strapping pin: holding it during reset enters the bootloader.
 CONFIG_NOTIFIER_BUTTON_GPIO=0
 CONFIG_NOTIFIER_BUTTON_ALT_GPIO=-1

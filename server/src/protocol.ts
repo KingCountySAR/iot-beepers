@@ -56,6 +56,22 @@ export interface DeviceConfig {
   channels: string[];
 }
 
+/**
+ * A tune in RTTTL, the old phone-ringtone notation: "name:d=<len>,o=<octave>,b=<bpm>:notes".
+ * Each note is [length]letter[#][.][octave], "p" is a rest. Pagers play up to 64 notes, in
+ * place of their built-in beeps.
+ */
+export const Rtttl = z
+  .string()
+  .max(400)
+  .regex(/^[^:]{0,32}:(\s*[dob]=\d+\s*,?)*\s*:(\s*\d*[a-gp]#?\.?\d?\.?\s*,?)+\s*$/i, 'not an RTTTL tune');
+
+/**
+ * A traditional pager alert: a fast high warble twice, then a rising arpeggio. Written for
+ * the 2-3 kHz range where small buzzers are loudest. Repeats for the length of the alarm.
+ */
+export const PAGER_TUNE = 'pager:d=32,o=7,b=125:e,g,e,g,e,g,e,g,8p,e,g,e,g,e,g,e,g,8p,16c,16e,16g,8c8,2p';
+
 export interface PageMessage {
   id: number;
   ch: string;
@@ -65,10 +81,12 @@ export interface PageMessage {
   alarm: boolean;
   /** Unix seconds when the page was created. */
   ts: number;
+  /** RTTTL tune for the alarm; the pager uses its built-in beeps without one. */
+  tune?: string;
 }
 
 export type Command =
-  | { cmd: 'test' }
+  | { cmd: 'test'; tune?: string }
   | { cmd: 'identify' }
   | { cmd: 'reboot' }
   | { cmd: 'ota'; version: string; url: string; sha256: string; size: number };

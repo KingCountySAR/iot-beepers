@@ -140,6 +140,7 @@ export class Hub {
 
   async sendCommand(deviceId: string, cmd: Command): Promise<boolean> {
     if (!this.connected.has(deviceId)) return false;
+    if (cmd.cmd === 'test') cmd = { ...cmd, tune: cmd.tune ?? (this.cfg.ALARM_TUNE || undefined) };
     await this.publish(topic.cmd(deviceId), cmd);
     await this.logEvent(deviceId, 'command', cmd.cmd);
     return true;
@@ -205,6 +206,7 @@ export class Hub {
       body: page.body.slice(0, MAX_PAGE_TEXT),
       alarm: Date.now() - page.createdAt.getTime() < this.cfg.ALARM_WINDOW_MIN * 60_000,
       ts: Math.floor(page.createdAt.getTime() / 1000),
+      tune: this.cfg.ALARM_TUNE || undefined,
     };
     await this.publish(topic.page(deviceId), msg);
     this.metrics.pagesSent.inc();

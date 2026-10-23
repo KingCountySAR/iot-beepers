@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PAGER_TUNE, Rtttl } from './protocol.js';
 
 const minutes = (def: number) => z.coerce.number().positive().default(def);
 
@@ -17,6 +18,8 @@ const Env = z.object({
   INGEST_TOKEN: z.string().optional(),
   /** Pages older than this are delivered silently (LED only) instead of sounding the alarm. */
   ALARM_WINDOW_MIN: minutes(10),
+  /** RTTTL tune pagers sound for pages and tests. Empty = the pagers' built-in beeps. */
+  ALARM_TUNE: z.union([z.literal(''), Rtttl]).default(PAGER_TUNE),
   /** Default lifetime of a page; expired pages are not replayed to reconnecting devices. */
   PAGE_TTL_MIN: minutes(120),
   CLAIM_CODE_TTL_MIN: minutes(30),

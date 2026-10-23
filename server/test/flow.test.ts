@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { PAGER_TUNE } from '../src/protocol.js';
 import { connectDevice, httpClient, startServer, until } from './harness.js';
 
 const DEV = 'a1b2c3d4e5f6';
@@ -65,7 +66,15 @@ describe('device lifecycle', () => {
     const sent = await admin('POST', '/api/pages', { channelId, title: 'Callout', body: 'Lost hiker, Mt Si. Respond.' });
     expect(sent.body.targets).toBe(1);
     const page = await dev.next('page');
-    expect(page).toMatchObject({ id: sent.body.id, ch: 'callout', title: 'Callout', alarm: true });
+    expect(page).toMatchObject({ id: sent.body.id, ch: 'callout', title: 'Callout', alarm: true, tune: PAGER_TUNE });
+
+    // Tests play the server's tune unless the request brings its own; bad tunes never reach the device.
+    expect((await admin('POST', `/api/devices/${DEV}/command`, { cmd: 'test' })).status).toBe(200);
+    expect(await dev.next('cmd')).toEqual({ cmd: 'test', tune: PAGER_TUNE });
+    const tune = 'scale:d=8,o=6,b=160:c,d,e,f,g,a,b,4c7';
+    expect((await admin('POST', `/api/devices/${DEV}/command`, { cmd: 'test', tune })).status).toBe(200);
+    expect(await dev.next('cmd')).toEqual({ cmd: 'test', tune });
+    expect((await admin('POST', `/api/devices/${DEV}/command`, { cmd: 'test', tune: 'not a tune' })).status).toBe(400);
 
     await dev.send('ack', { page: page.id, state: 'received' });
     await dev.send('ack', { page: page.id, state: 'acked' });

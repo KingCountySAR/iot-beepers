@@ -50,8 +50,8 @@ A device may only subscribe to `dev/{id}/#` and may only publish to its own `sta
 | Topic | Payload |
 |---|---|
 | `dev/{id}/config` | `{"claimed":true,"name":"Bedside","channels":["callout","training"]}` |
-| `dev/{id}/page` | `{"id":42,"ch":"callout","title":"Callout","body":"Lost hiker…","alarm":true,"ts":1761030000}` |
-| `dev/{id}/cmd` | `{"cmd":"test"}`, `{"cmd":"identify"}`, `{"cmd":"reboot"}` |
+| `dev/{id}/page` | `{"id":42,"ch":"callout","title":"Callout","body":"Lost hiker…","alarm":true,"ts":1761030000,"tune":"pager:d=32,o=7,b=125:e,g,…"}` |
+| `dev/{id}/cmd` | `{"cmd":"test","tune":"…"}`, `{"cmd":"identify"}`, `{"cmd":"reboot"}` |
 | `dev/{id}/cmd` | `{"cmd":"ota","version":"0.2.0","url":"https://host/api/device/firmware/xiao-c3/0.2.0","sha256":"…","size":1178304}` |
 
 ### What the server does on `hello`
@@ -71,3 +71,8 @@ The device downloads `url` with `esp_https_ota` and checks two things:
 `sha256` in the command is the hash of the whole `.bin`. The device doesn't check it; it's there for the admin's audit trail. After rebooting, the new image is *pending verify*. It must connect to the server within 5 minutes or the bootloader rolls back to the previous image. The device then reports `ota_rollback` once.
 
 Firmware downloads are unauthenticated, because images contain no secrets. To guarantee the images are authentic as well as intact, enable signed app images in ESP-IDF; see `docs/hardware.md` § "Before production".
+
+### Alarm tunes
+Pages and `test` commands carry an optional `tune` in [RTTTL](https://en.wikipedia.org/wiki/Ring_Tone_Text_Transfer_Language), the old phone-ringtone notation: `name:d=<length>,o=<octave>,b=<bpm>:<notes>`, where each note is `[length]letter[#][.][octave]` and `p` is a rest. The pager plays it in place of its built-in beeps: a page repeats it for the whole alarm, a test plays it once. Pagers play up to 64 notes, and ignore a tune they can't parse.
+
+The server sends `ALARM_TUNE` (default: a pager-style warble and rising arpeggio, `PAGER_TUNE` in `server/src/protocol.ts`); set it empty for the built-in beeps. `POST /api/devices/{id}/command` with `{"cmd":"test","tune":"…"}` tries out a different one. Small buzzers are loudest around 2–4 kHz, roughly octave 7 (C7 = 2093 Hz).

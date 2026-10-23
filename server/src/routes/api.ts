@@ -29,6 +29,7 @@ import {
 } from '../db/schema.js';
 import { FIRMWARE_PROJECT, parseFirmwareUpload } from '../firmware.js';
 import { DEFAULT_FW_PREFIX, type Hub } from '../hub.js';
+import { Rtttl } from '../protocol.js';
 
 export interface ApiDeps {
   db: Db;
@@ -67,7 +68,11 @@ const DevicePatch = z.object({
   name: z.string().max(60).optional(),
   channelIds: z.array(z.number().int()).optional(),
 });
-const DeviceCommand = z.object({ cmd: z.enum(['test', 'identify', 'reboot']) });
+const DeviceCommand = z.union([
+  // A test can try out a tune; without one it plays the server's ALARM_TUNE.
+  z.object({ cmd: z.literal('test'), tune: Rtttl.optional() }),
+  z.object({ cmd: z.enum(['identify', 'reboot']) }),
+]);
 const ChannelBody = z.object({
   slug: z.string().regex(/^[a-z0-9-]{1,32}$/, 'lowercase letters, digits and dashes'),
   name: z.string().min(1).max(60),
