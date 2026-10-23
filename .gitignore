@@ -24,3 +24,4 @@ hardware/**/kicad/*.ses
 hardware/**/kicad/__pycache__/
 hardware/**/kicad/.history/
 hardware/**/kicad/~*.lck
+hardware/**/case/out/

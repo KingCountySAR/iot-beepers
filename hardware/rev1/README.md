@@ -114,7 +114,7 @@ The KiCad 10 project is in [`kicad/`](kicad/): open `sar-pager.kicad_pro`. More 
 
 **Antenna:** the XIAO ESP32C3 uses the **external FPC antenna** on its u.FL connector. The case needs a spot to stick it to an inside wall, away from the buzzer's magnet and coil.
 
-**Case:** LED1 is mounted tall (leads left long, or on a printed spacer) so it sits flush with or proud of the lid. LED2 shows through a small hole or a printed light pipe. The 3D-printed lid needs holes for LED1, LED2, the button cap over SW1 and the sound port over BZ1, plus wall cut-outs for USB-C and SW2's lever. That can be generated in OpenSCAD from this outline.
+**Case:** LED1 is mounted tall (leads left long, or on a printed spacer) so it sits flush with or proud of the lid. LED2 shows through a short piece of 1/16" clear acrylic rod glued into the lid. The 3D-printed lid needs holes for LED1, LED2, the button cap over SW1 and the sound port over BZ1, plus wall cut-outs for USB-C and SW2's lever. The case is in [`case/`](case/README.md).
 
 ### How it was made, and how to change it
 `generate.py` places the parts and assigns the nets, Freerouting routes the board, and `finish.py` adds the ground fill. `./build.sh` runs all of that, then DRC, renders and fab files. It needs KiCad 10 and Docker.
