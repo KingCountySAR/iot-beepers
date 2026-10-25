@@ -113,6 +113,7 @@ export interface FlashBoard {
 /** Display names for known boards (CONFIG_NOTIFIER_BOARD). Unknown IDs are shown as-is. */
 export const BOARD_NAMES: Record<string, string> = {
   'xiao-c3': 'Seeed XIAO ESP32C3 (rev 1 board)',
+  'xiao-c3-proto': 'Seeed XIAO ESP32C3 + buzzer module (prototype)',
   'devkit-v1': 'ESP32 DevKit V1 (prototype)',
 };
 export const boardName = (board: string) => BOARD_NAMES[board] ?? board;

@@ -2,7 +2,7 @@
 # Build one board's firmware in Docker and merge it into a single image for the server's
 # Firmware page, which uses it for both OTA updates and the browser flasher.
 #
-#   ./build.sh [xiao-c3|devkit-v1]     (default xiao-c3)
+#   ./build.sh [xiao-c3|xiao-c3-proto|devkit-v1]     (default xiao-c3)
 #
 # Output: dist/sar-notifier-<board>-<version>.bin
 set -euo pipefail
@@ -11,8 +11,9 @@ cd "$(dirname "$0")"
 board=${1:-xiao-c3}
 case "$board" in
   xiao-c3)   target=esp32c3 dir=build        defaults="sdkconfig.defaults" ;;
+  xiao-c3-proto) target=esp32c3 dir=build-xiao-proto defaults="sdkconfig.defaults;sdkconfig.defaults.xiao-proto" ;;
   devkit-v1) target=esp32   dir=build-devkit defaults="sdkconfig.defaults;sdkconfig.defaults.devkit" ;;
-  *) echo "unknown board: $board (xiao-c3 or devkit-v1)" >&2; exit 1 ;;
+  *) echo "unknown board: $board (xiao-c3, xiao-c3-proto or devkit-v1)" >&2; exit 1 ;;
 esac
 version=$(tr -d '[:space:]' < version.txt)
 out="dist/sar-notifier-$board-$version.bin"

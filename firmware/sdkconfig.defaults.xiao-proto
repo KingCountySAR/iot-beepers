@@ -1,0 +1,8 @@
+# Profile: Seeed XIAO ESP32C3 on a breadboard, with a passive buzzer module instead of the
+# rev 1 board's MOSFET. Layered on top of sdkconfig.defaults; see README.md for the build command.
+# Same pins as rev 1, but its own board ID: this image idles the alarm pin high, which would
+# hold rev 1's MOSFET on.
+CONFIG_NOTIFIER_BOARD="xiao-c3-proto"
+
+# Passive buzzer modules with a PNP transistor (S8550, marked 2TY) sound when the pin is low.
+CONFIG_NOTIFIER_ALARM_ACTIVE_LOW=y

@@ -8,13 +8,14 @@ Each build is for one board, set by `CONFIG_NOTIFIER_BOARD`. The pins are compil
 | Board ID | Hardware | Chip | Config | Build dir |
 |---|---|---|---|---|
 | `xiao-c3` | Seeed XIAO ESP32C3 on the rev 1 board | esp32c3 | `sdkconfig.defaults` | `build/` |
+| `xiao-c3-proto` | XIAO ESP32C3 on a breadboard with a low-trigger buzzer module on D1. Rev 1 pins, alarm active low | esp32c3 | `sdkconfig.defaults` + `sdkconfig.defaults.xiao-proto` | `build-xiao-proto/` |
 | `devkit-v1` | ESP32 DevKit V1, for breadboard prototyping | esp32 | `sdkconfig.defaults` + `sdkconfig.defaults.devkit` | `build-devkit/` |
 
 ## Build
 Docker is all you need (in Git Bash on Windows too):
 
 ```sh
-./build.sh xiao-c3       # or devkit-v1
+./build.sh xiao-c3       # or xiao-c3-proto, devkit-v1
 ```
 
 That builds in `espressif/idf:v5.5.1` and writes **`dist/sar-notifier-<board>-<version>.bin`**, a merged image containing the bootloader, partition table and app. Upload it on the server's **Firmware** page; it serves both OTA updates and the browser flasher.
