@@ -1,4 +1,6 @@
+import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { devices } from '../src/db/schema.js';
 import { metricsApp } from '../src/metrics.js';
 import { connectDevice, httpClient, startServer, until } from './harness.js';
 
@@ -24,17 +26,23 @@ describe('prometheus metrics', () => {
 
   it('reports devices, pages, receipts and acks', async () => {
     const dev = await connectDevice(srv.url, DEV, SECRET);
-    await dev.hello({ rssi: -61, heap: 120000 });
+    await dev.hello({ rssi: -85, heap: 120000 });
     await dev.next('config');
-    await until(async () => (await scrape()).includes(`sar_device_rssi_dbm{device="${DEV}"} -61`));
+    await until(async () => (await scrape()).includes('sar_devices_free_heap_min_bytes 120000'));
 
+    // Counts only: nothing names or identifies a pager.
     let text = await scrape();
-    expect(text).toContain(
-      `sar_device_info{device="${DEV}",name="Bedside",owner="Administrator",fw_version="0.1.0",board=""} 1`,
-    );
-    expect(text).toContain(`sar_device_online{device="${DEV}"} 1`);
-    expect(text).toContain(`sar_device_armed{device="${DEV}"} 1`);
+    expect(text).not.toContain(DEV);
+    expect(text).not.toContain('Bedside');
+    expect(text).toContain('sar_devices{board="",fw_version="0.1.0",paired="true",online="true"} 1');
+    expect(text).toContain('sar_devices_weak_signal 1');
+    expect(text).toContain('sar_devices_quiet 0');
+    expect(text).toContain('sar_devices_offline_30m 0');
     expect(text).toContain('sar_mqtt_connects_total 1');
+    // Series exist from 0 before anything happens, so increase() counts the first page, receipt or rollback.
+    expect(text).toContain('sar_pages_total{channel="callout",source="web"} 0');
+    expect(text).toContain('sar_page_receipts_total{state="acked"} 0');
+    expect(text).toContain('sar_device_events_total{type="ota_rollback"} 0');
 
     const sent = await admin('POST', '/api/pages', { channelId: 1, body: 'Callout' });
     const page = await dev.next('page');
@@ -62,8 +70,18 @@ describe('prometheus metrics', () => {
     expect(await scrape()).toContain('sar_device_events_total{type="ota_rollback"} 1');
 
     await dev.close();
-    await until(async () => (await scrape()).includes(`sar_device_online{device="${DEV}"} 0`));
-    expect(await scrape()).toContain('sar_mqtt_disconnects_total 1');
+    await until(async () => (await scrape()).includes('sar_devices{board="",fw_version="0.1.0",paired="true",online="false"} 1'));
+    text = await scrape();
+    expect(text).toContain('sar_mqtt_disconnects_total 1');
+    expect(text).not.toContain('online="true"');
+    expect(text).toContain('sar_devices_free_heap_min_bytes Nan');
+    // Just disconnected isn't offline yet; 31 minutes of silence is.
+    expect(text).toContain('sar_devices_offline_30m 0');
+    await srv.db.update(devices).set({ lastSeenAt: new Date(Date.now() - 31 * 60_000) }).where(eq(devices.id, DEV));
+    await srv.db.update(devices).set({ armed: false }).where(eq(devices.id, DEV));
+    text = await scrape();
+    expect(text).toContain('sar_devices_offline_30m 1');
+    expect(text).toContain('sar_devices_quiet 1');
   });
 
   it('counts rejected MQTT logins', async () => {

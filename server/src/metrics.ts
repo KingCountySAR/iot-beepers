@@ -1,9 +1,9 @@
 import { timingSafeEqual } from 'node:crypto';
-import { and, count, eq, gt, isNull, like } from 'drizzle-orm';
+import { and, count, eq, gt, isNotNull, isNull, like } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from 'prom-client';
 import type { Db } from './db/index.js';
-import { deliveries, devices, pages, settings, users } from './db/schema.js';
+import { channels, deliveries, devices, pages, settings } from './db/schema.js';
 
 import { DEFAULT_FW_PREFIX } from './hub.js';
 
@@ -26,9 +26,15 @@ const KNOWN_EVENTS = new Set([
   'ota_rollback',
 ]);
 
+/** Paired pagers below this signal count as weak (sar_devices_weak_signal). */
+const WEAK_RSSI_DBM = -80;
+/** Paired pagers silent for longer than this count as offline (sar_devices_offline_30m), as the pager's own chirp. */
+const OFFLINE_MS = 30 * 60_000;
+
 /**
  * Prometheus metrics for admins (Grafana). Counters and histograms are updated as things
- * happen; per-device gauges are read from the database on each scrape.
+ * happen; the device gauges are read from the database on each scrape. There are no
+ * per-device series: the gauges count pagers, and the web UI shows each one.
  */
 export class Metrics {
   readonly registry = new Registry();
@@ -44,19 +50,16 @@ export class Metrics {
   private deviceEvents = this.counter('sar_device_events_total', 'Device log events, e.g. ota_rollback', ['type']);
   readonly ingest = this.counter('sar_ingest_requests_total', 'POST /api/ingest/page requests', ['result']);
 
-  private deviceInfo = this.gauge('sar_device_info', 'One per device; join on `device` for names', [
-    'device',
-    'name',
-    'owner',
-    'fw_version',
+  private devices = this.gauge('sar_devices', 'Devices, by board, firmware, whether paired, and whether connected', [
     'board',
+    'fw_version',
+    'paired',
+    'online',
   ]);
-  private online = this.gauge('sar_device_online', '1 if the device has a live MQTT session', ['device']);
-  private armed = this.gauge('sar_device_armed', '1 if the arm/quiet switch is on armed', ['device']);
-  private rssi = this.gauge('sar_device_rssi_dbm', 'Wi-Fi signal at the last status message', ['device']);
-  private heap = this.gauge('sar_device_free_heap_bytes', 'Free heap at the last status message', ['device']);
-  private uptime = this.gauge('sar_device_uptime_seconds', 'Uptime at the last status message', ['device']);
-  private lastSeen = this.gauge('sar_device_last_seen_timestamp_seconds', 'Last message from the device', ['device']);
+  private quiet = this.gauge('sar_devices_quiet', 'Paired pagers with the arm/quiet switch on quiet');
+  private offline = this.gauge('sar_devices_offline_30m', 'Paired pagers not heard from for over 30 minutes');
+  private weakSignal = this.gauge('sar_devices_weak_signal', `Connected paired pagers with Wi-Fi below ${WEAK_RSSI_DBM} dBm`);
+  private minHeap = this.gauge('sar_devices_free_heap_min_bytes', "Lowest free heap of the connected pagers' last status");
   private defaultFw = this.gauge('sar_firmware_default_info', "Each board's rollout default firmware version", [
     'board',
     'version',
@@ -68,6 +71,12 @@ export class Metrics {
 
   constructor(private db: Db) {
     collectDefaultMetrics({ register: this.registry });
+    // Every counter series starts at 0, not at its first increment: increase() can't count a series' first sample, so
+    // otherwise the first page, receipt or rollback after each restart would be missed. Channels are added on scrape.
+    for (const state of ['received', 'acked']) this.pageReceipts.inc({ state }, 0);
+    for (const type of KNOWN_EVENTS) this.deviceEvents.inc({ type }, 0);
+    this.deviceEvents.inc({ type: 'other' }, 0);
+    for (const result of ['ok', 'unauthorized', 'unknown_channel']) this.ingest.inc({ result }, 0);
   }
 
   /** Devices choose their own event types, so unknown ones are lumped together to bound the labels. */
@@ -75,7 +84,7 @@ export class Metrics {
     this.deviceEvents.inc({ type: KNOWN_EVENTS.has(type) ? type : 'other' });
   }
 
-  /** Prometheus text exposition, after refreshing the per-device gauges. */
+  /** Prometheus text exposition, after refreshing the device gauges. */
   async scrape(): Promise<string> {
     await this.refresh();
     return this.registry.metrics();
@@ -87,33 +96,50 @@ export class Metrics {
 
   private async refresh() {
     const rows = await this.db
-      .select({ dev: devices, owner: users.displayName })
-      .from(devices)
-      .leftJoin(users, eq(users.id, devices.ownerId));
+      .select({
+        board: devices.hwRev,
+        fwVersion: devices.fwVersion,
+        paired: isNotNull(devices.ownerId),
+        online: devices.online,
+        armed: devices.armed,
+        rssi: devices.rssi,
+        freeHeap: devices.freeHeap,
+        lastSeenAt: devices.lastSeenAt,
+      })
+      .from(devices);
     const defaults = await this.db.select().from(settings).where(like(settings.key, `${DEFAULT_FW_PREFIX}%`));
     const [pending] = await this.db
       .select({ n: count() })
       .from(deliveries)
       .innerJoin(pages, eq(pages.id, deliveries.pageId))
       .where(and(isNull(deliveries.receivedAt), gt(pages.expiresAt, new Date())));
+    // Each channel's page counters from 0 (see the constructor); adding 0 leaves one that's counting alone.
+    for (const { slug } of await this.db.select({ slug: channels.slug }).from(channels)) {
+      for (const source of ['web', 'api']) this.pages.inc({ channel: slug, source }, 0);
+    }
 
-    // Reset so deleted devices disappear instead of reporting stale values.
-    for (const g of [this.deviceInfo, this.online, this.armed, this.rssi, this.heap, this.uptime, this.lastSeen, this.defaultFw]) {
-      g.reset();
+    // Reset so combinations nobody has any more disappear instead of reporting stale counts.
+    this.devices.reset();
+    this.defaultFw.reset();
+    const now = Date.now();
+    let quiet = 0;
+    let offline = 0;
+    let weak = 0;
+    let minHeap: number | null = null;
+    for (const d of rows) {
+      const labels = { board: d.board ?? '', fw_version: d.fwVersion ?? '', paired: String(d.paired), online: String(d.online) };
+      this.devices.inc(labels);
+      if (d.online && d.freeHeap != null) minHeap = Math.min(minHeap ?? d.freeHeap, d.freeHeap);
+      if (!d.paired) continue;
+      if (d.armed === false) quiet++;
+      if (!d.online && (!d.lastSeenAt || now - d.lastSeenAt.getTime() > OFFLINE_MS)) offline++;
+      if (d.online && d.rssi != null && d.rssi < WEAK_RSSI_DBM) weak++;
     }
-    for (const { dev, owner } of rows) {
-      const device = dev.id;
-      this.deviceInfo.set(
-        { device, name: dev.name, owner: owner ?? '', fw_version: dev.fwVersion ?? '', board: dev.hwRev ?? '' },
-        1,
-      );
-      this.online.set({ device }, dev.online ? 1 : 0);
-      this.armed.set({ device }, dev.armed ? 1 : 0);
-      if (dev.rssi != null) this.rssi.set({ device }, dev.rssi);
-      if (dev.freeHeap != null) this.heap.set({ device }, dev.freeHeap);
-      if (dev.uptimeS != null) this.uptime.set({ device }, dev.uptimeS);
-      if (dev.lastSeenAt) this.lastSeen.set({ device }, dev.lastSeenAt.getTime() / 1000);
-    }
+    this.quiet.set(quiet);
+    this.offline.set(offline);
+    this.weakSignal.set(weak);
+    // NaN rather than 0 when no pager is connected, so it can't look like one ran out (comparisons with NaN are false).
+    this.minHeap.set(minHeap ?? NaN);
     for (const d of defaults) this.defaultFw.set({ board: d.key.slice(DEFAULT_FW_PREFIX.length), version: d.value }, 1);
     this.unreceived.set(pending?.n ?? 0);
   }
