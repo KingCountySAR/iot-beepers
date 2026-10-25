@@ -60,6 +60,18 @@ The UI is on :4100 and metrics on :4101 in production too. Dev ports and URLs co
 
 **Schema changes:** edit `server/src/db/schema.ts`. Until the first release we don't keep migrations: delete `server/drizzle/`, run `npm run db:generate -w server` to regenerate `0000_init`, and update existing databases by hand (or delete `server/data/` in dev). Migrations run on startup.
 
+**Pages by email:** mail to `<channel slug>@beepers.kingcountysar.org` pages that channel, through the KCSARA VM's
+mail service (the vm repo's [mail/README.md](../vm/mail/README.md)), which checks SPF and DKIM and POSTs it to
+`/api/ingest/email` with `INGEST_TOKEN`. The subject is the page's title and the text its body, without a signature
+after "-- ". An unknown channel bounces. To set it up: a route in the VM's `config/mail.env`, with `INGEST_TOKEN` and
+who may send, and an MX record for `beepers.kingcountysar.org` pointing at the mail host:
+
+```
+ROUTE_BEEPERS=beepers.kingcountysar.org http://beepers:4100/api/ingest/email
+ROUTE_BEEPERS_TOKEN=<INGEST_TOKEN>
+ROUTE_BEEPERS_SENDERS=<who may page: addresses, or @domain>
+```
+
 Send a page from another system:
 
 ```sh
@@ -106,7 +118,7 @@ Google only allows plain-HTTP origins on localhost, so in dev sign in at http://
 **Firmware:** run `firmware/build.sh <board>` and upload the `dist/` image on the **Firmware** page. Members can then flash new pagers from the **Flash** page in Chrome or Edge, and updates roll out over Wi-Fi per board. See [firmware/README.md](firmware/README.md).
 
 ## Not done yet
-- **Ingest from email/SMS.** The plumbing is `POST /api/ingest/page`. Add an inbound-email webhook (Postmark/Mailgun/SES) or a Twilio number that calls it.
+- **Ingest from SMS.** The plumbing is `POST /api/ingest/page`: a Twilio number could call it.
 - **Notify members when their pager goes offline**, by email/SMS. The dashboard already lists offline paired pagers.
 - Rate limiting on `/api/device/register`.
 - Signed firmware images (see docs/hardware.md).

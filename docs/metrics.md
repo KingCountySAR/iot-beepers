@@ -37,7 +37,7 @@ Labels have only a few values each, so the number of series stays the same howev
 ### Pages
 | Metric | Type | Notes |
 |---|---|---|
-| `sar_pages_total{channel,source}` | counter | `source` is `web` or `api` |
+| `sar_pages_total{channel,source}` | counter | `source` is `web`, `api` or `email` |
 | `sar_page_messages_sent_total` | counter | Includes replays to pagers that reconnect |
 | `sar_page_receipts_total{state}` | counter | First `received` and first `acked` per page and pager |
 | `sar_page_receive_seconds` | histogram | Page created → pager received it. Includes time the pager was offline |
@@ -50,7 +50,7 @@ Labels have only a few values each, so the number of series stays the same howev
 | `sar_mqtt_connects_total`, `sar_mqtt_disconnects_total` | counter | A high rate means pagers are flapping |
 | `sar_mqtt_auth_failures_total` | counter | |
 | `sar_device_events_total{type}` | counter | `connect`, `ota_failed`, `ota_rollback`, etc. Unrecognised types from a device count as `other` |
-| `sar_ingest_requests_total{result}` | counter | `ok`, `unauthorized` or `unknown_channel` |
+| `sar_ingest_requests_total{result}` | counter | `POST /api/ingest/page` and `/api/ingest/email`: `ok`, `unauthorized`, `unknown_channel` or `empty` (an email with no subject or text) |
 | `process_*`, `nodejs_*` | | Node's default metrics |
 
 HTTP request metrics come from the VM's Caddy log (its Sites dashboard).

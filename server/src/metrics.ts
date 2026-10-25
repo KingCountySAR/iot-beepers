@@ -48,7 +48,7 @@ export class Metrics {
   readonly mqttDisconnects = this.counter('sar_mqtt_disconnects_total', 'Device MQTT sessions closed');
   readonly mqttAuthFailures = this.counter('sar_mqtt_auth_failures_total', 'Rejected device MQTT logins');
   private deviceEvents = this.counter('sar_device_events_total', 'Device log events, e.g. ota_rollback', ['type']);
-  readonly ingest = this.counter('sar_ingest_requests_total', 'POST /api/ingest/page requests', ['result']);
+  readonly ingest = this.counter('sar_ingest_requests_total', 'POST /api/ingest/page and /api/ingest/email requests', ['result']);
 
   private devices = this.gauge('sar_devices', 'Devices, by board, firmware, whether paired, and whether connected', [
     'board',
@@ -76,7 +76,7 @@ export class Metrics {
     for (const state of ['received', 'acked']) this.pageReceipts.inc({ state }, 0);
     for (const type of KNOWN_EVENTS) this.deviceEvents.inc({ type }, 0);
     this.deviceEvents.inc({ type: 'other' }, 0);
-    for (const result of ['ok', 'unauthorized', 'unknown_channel']) this.ingest.inc({ result }, 0);
+    for (const result of ['ok', 'unauthorized', 'unknown_channel', 'empty']) this.ingest.inc({ result }, 0);
   }
 
   /** Devices choose their own event types, so unknown ones are lumped together to bound the labels. */
@@ -115,7 +115,7 @@ export class Metrics {
       .where(and(isNull(deliveries.receivedAt), gt(pages.expiresAt, new Date())));
     // Each channel's page counters from 0 (see the constructor); adding 0 leaves one that's counting alone.
     for (const { slug } of await this.db.select({ slug: channels.slug }).from(channels)) {
-      for (const source of ['web', 'api']) this.pages.inc({ channel: slug, source }, 0);
+      for (const source of ['web', 'api', 'email']) this.pages.inc({ channel: slug, source }, 0);
     }
 
     // Reset so combinations nobody has any more disappear instead of reporting stale counts.

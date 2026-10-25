@@ -122,6 +122,36 @@ describe('device lifecycle', () => {
     expect(await res.json()).toMatchObject({ targets: 1 });
   });
 
+  it("pages <slug>@ email from the VM's mail service", async () => {
+    const email = (body: object, token = 'ingest-token') =>
+      fetch(`${srv.url}/api/ingest/email`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ from: 'dispatch@example.org', ...body }),
+      });
+    const mail = {
+      to: 'Callout@beepers.example.org',
+      subject: 'SAR callout:\r\n  lost hiker',
+      text: 'Lost hiker near Mt Si.\r\n\r\n\r\n\r\nRespond to base.\r\n-- \r\nKing County Dispatch\r\n',
+    };
+    expect((await email(mail, 'wrong')).status).toBe(401);
+
+    const res = await email(mail);
+    expect(res.status).toBe(201);
+    const { id } = await res.json();
+    const page = (await admin('GET', `/api/pages/${id}`)).body;
+    expect(page).toMatchObject({ title: 'SAR callout: lost hiker', body: 'Lost hiker near Mt Si.\n\nRespond to base.', source: 'email' });
+
+    // A 4xx bounces the email, with the error as its reason.
+    const unknown = await email({ ...mail, to: 'nope@beepers.example.org' });
+    expect(unknown.status).toBe(404);
+    expect(await unknown.json()).toEqual({ error: 'No channel "nope"' });
+    expect((await email({ ...mail, subject: ' ', text: '\r\n' })).status).toBe(400);
+    // Subject only: the subject is the page.
+    const subjectOnly = await email({ ...mail, text: '' });
+    expect((await admin('GET', `/api/pages/${(await subjectOnly.json()).id}`)).body.body).toBe('SAR callout: lost hiker');
+  });
+
   it('members only see their own devices', async () => {
     const sam = httpClient(srv.url);
     expect((await sam('POST', '/api/auth/dev-login', { email: 'Sam@Example.com', name: 'Sam' })).status).toBe(200);

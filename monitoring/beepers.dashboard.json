@@ -1217,7 +1217,7 @@
     {
       "type": "timeseries",
       "title": "Ingest API",
-      "description": "POST /api/ingest/page requests, by result.",
+      "description": "POST /api/ingest/page and /api/ingest/email requests (pages from other systems, and email from the VM's mail service), by result.",
       "interval": "15m",
       "targets": [
         {

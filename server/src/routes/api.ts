@@ -96,6 +96,32 @@ const IngestBody = z.object({
   body: z.string().min(1).max(2000),
   ttlMin: z.number().int().positive().max(24 * 60).optional(),
 });
+/** A message from the KCSARA VM's mail service (vm repo, mail/README.md): <channel slug>@<this app's domain>. */
+const IngestEmail = z.object({
+  to: z.string().max(320),
+  from: z.string().max(320),
+  subject: z.string().max(10_000).default(''),
+  text: z.string().max(1_000_000).default(''),
+});
+
+/** A page's title and body from an email: the subject, and the text without its signature or runs of blank lines. */
+function pageFromEmail(subject: string, text: string) {
+  const title = subject.replace(/\s+/g, ' ').trim();
+  const body = text
+    .replace(/\r\n?/g, '\n')
+    // "-- " on its own line starts a signature (RFC 3676).
+    .split(/\n-- \n/)[0]!
+    .split('\n')
+    .map((line) => line.trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+  return {
+    title: title.length > 80 ? `${title.slice(0, 79)}…` : title,
+    // A subject-only email pages with the subject.
+    body: (body || title).slice(0, 2000),
+  };
+}
 const GroupChannelBody = z.object({ groupName: z.string().trim().min(1).max(120), channelId: z.number().int() });
 const GrantBody = z.object({ userId: z.string().min(1), channelId: z.number().int() });
 const VersionBody = z.object({ version: z.string().nullable() });
@@ -172,17 +198,20 @@ export function apiRoutes({ db, cfg, hub, disconnect, access, verifyGoogle }: Ap
 
   // ---- ingest (machine-to-machine) ---------------------------------------
 
-  app.post('/ingest/page', zValidator('json', IngestBody), async (c) => {
+  /** Whether the request has INGEST_TOKEN as its bearer token. Ingest is off without one. */
+  const ingestAuthorized = (c: Context) => {
     const token = c.req.header('authorization')?.replace(/^Bearer\s+/i, '') ?? '';
     const expected = cfg.INGEST_TOKEN;
     const ok =
       !!expected &&
       token.length === expected.length &&
       timingSafeEqual(Buffer.from(token), Buffer.from(expected));
-    if (!ok) {
-      hub.metrics.ingest.inc({ result: 'unauthorized' });
-      return c.json({ error: 'Unauthorized' }, 401);
-    }
+    if (!ok) hub.metrics.ingest.inc({ result: 'unauthorized' });
+    return ok;
+  };
+
+  app.post('/ingest/page', zValidator('json', IngestBody), async (c) => {
+    if (!ingestAuthorized(c)) return c.json({ error: 'Unauthorized' }, 401);
 
     const body = c.req.valid('json');
     const [ch] = await db.select().from(channels).where(eq(channels.slug, body.channel));
@@ -192,6 +221,28 @@ export function apiRoutes({ db, cfg, hub, disconnect, access, verifyGoogle }: Ap
     }
     const { page, targets } = await hub.createPage({ ...body, channelId: ch.id, source: 'api' });
     hub.metrics.ingest.inc({ result: 'ok' });
+    return c.json({ id: page.id, targets }, 201);
+  });
+
+  // The mail service has already checked SPF/DKIM and its allowed senders; a 4xx here bounces the email with "error".
+  app.post('/ingest/email', zValidator('json', IngestEmail), async (c) => {
+    if (!ingestAuthorized(c)) return c.json({ error: 'Unauthorized' }, 401);
+
+    const mail = c.req.valid('json');
+    const slug = mail.to.slice(0, mail.to.lastIndexOf('@')).toLowerCase();
+    const [ch] = slug ? await db.select().from(channels).where(eq(channels.slug, slug)) : [];
+    if (!ch) {
+      hub.metrics.ingest.inc({ result: 'unknown_channel' });
+      return c.json({ error: `No channel "${slug}"` }, 404);
+    }
+    const { title, body } = pageFromEmail(mail.subject, mail.text);
+    if (!body) {
+      hub.metrics.ingest.inc({ result: 'empty' });
+      return c.json({ error: 'No subject or text to page with' }, 400);
+    }
+    const { page, targets } = await hub.createPage({ channelId: ch.id, title, body, source: 'email' });
+    hub.metrics.ingest.inc({ result: 'ok' });
+    console.log(`Email page ${page.id} on ${ch.slug} from ${mail.from} to ${targets} pagers`);
     return c.json({ id: page.id, targets }, 201);
   });
 
