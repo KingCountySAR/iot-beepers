@@ -1,15 +1,15 @@
-# Prometheus alerting rules for the SAR notifier. Add to rule_files in prometheus.yml.
-# Assumes the scrape job is named "sar-notifier" (see docs/metrics.md).
+# Prometheus alerting rules for the SAR beepers. Add to rule_files in prometheus.yml.
+# Assumes the scrape job is named "sar-beepers" (see docs/metrics.md).
 groups:
-  - name: sar-notifier
+  - name: sar-beepers
     rules:
-      - alert: SarNotifierDown
-        expr: up{job="sar-notifier"} == 0
+      - alert: SarBeepersDown
+        expr: up{job="sar-beepers"} == 0
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: SAR notifier server is not being scraped; pages may not be going out
+          summary: SAR beepers server is not being scraped; pages may not be going out
 
       # A member's pager can't receive pages. The info join adds the pager and owner names.
       - alert: SarPagerOffline

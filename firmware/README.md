@@ -18,7 +18,7 @@ Docker is all you need (in Git Bash on Windows too):
 ./build.sh xiao-c3       # or xiao-c3-proto, devkit-v1
 ```
 
-That builds in `espressif/idf:v5.5.1` and writes **`dist/sar-notifier-<board>-<version>.bin`**, a merged image containing the bootloader, partition table and app. Upload it on the server's **Firmware** page; it serves both OTA updates and the browser flasher.
+That builds in `espressif/idf:v5.5.1` and writes **`dist/sar-beepers-<board>-<version>.bin`**, a merged image containing the bootloader, partition table and app. Upload it on the server's **Firmware** page; it serves both OTA updates and the browser flasher.
 
 With a local ESP-IDF instead, the same build is `idf.py build` for the XIAO, or for the DevKit:
 

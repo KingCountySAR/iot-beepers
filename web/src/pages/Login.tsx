@@ -42,7 +42,7 @@ export function LoginPage({ next }: { next: string }) {
 
   return (
     <main className="narrow">
-      <h1>SAR Notifier</h1>
+      <h1>SAR Beepers</h1>
       {pairing && <p>Sign in to finish pairing your pager.</p>}
       <div className="stack">
         {options.data?.googleClientId && (

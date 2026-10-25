@@ -45,7 +45,7 @@ A member's groups are kept by both id and title (e.g. `21` and `ESAR Field`), so
 
 **Credentials:** cedar takes bearer tokens from its Hydra, with the `members.read` scope. Make a client in the vm repo:
 ```
-node hydra.mjs create oauth2-client --name "SAR Notifier" --grant-type client_credentials --scope members.read --format json
+node hydra.mjs create oauth2-client --name "SAR Beepers" --grant-type client_credentials --scope members.read --format json
 ```
 Then set:
 - `MEMBER_API_URL`: `https://cedar.kingcountysar.org/api/v1`, or `http://cedar:3040/api/v1` from the VM's network.

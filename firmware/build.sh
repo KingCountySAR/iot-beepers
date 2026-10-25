@@ -4,7 +4,7 @@
 #
 #   ./build.sh [xiao-c3|xiao-c3-proto|devkit-v1]     (default xiao-c3)
 #
-# Output: dist/sar-notifier-<board>-<version>.bin
+# Output: dist/sar-beepers-<board>-<version>.bin
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -16,7 +16,7 @@ case "$board" in
   *) echo "unknown board: $board (xiao-c3, xiao-c3-proto or devkit-v1)" >&2; exit 1 ;;
 esac
 version=$(tr -d '[:space:]' < version.txt)
-out="dist/sar-notifier-$board-$version.bin"
+out="dist/sar-beepers-$board-$version.bin"
 mkdir -p dist
 
 # Git Bash would otherwise rewrite the container paths below into Windows paths.

@@ -1,5 +1,5 @@
 {
-  "name": "sar-notifier",
+  "name": "sar-beepers",
   "private": true,
   "type": "module",
   "workspaces": [

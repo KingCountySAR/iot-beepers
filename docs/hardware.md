@@ -1,7 +1,7 @@
 # Hardware
 
 ## Target board
-The target is a **Seeed XIAO ESP32C3** on the rev 1 carrier board. The schematic and BOM are in [`hardware/rev1`](../hardware/rev1/README.md). For breadboard prototyping there's an ESP32 DevKit V1 profile; see [`firmware/README.md`](../firmware/README.md#prototyping-on-an-esp32-devkit-v1). Other ESP32-C3/S3 boards work too: set the pins under `idf.py menuconfig → SAR Notifier → Pins`, give the build a new **Board ID** so OTA never sends it another board's image, and run `idf.py set-target esp32s3` for an S3.
+The target is a **Seeed XIAO ESP32C3** on the rev 1 carrier board. The schematic and BOM are in [`hardware/rev1`](../hardware/rev1/README.md). For breadboard prototyping there's an ESP32 DevKit V1 profile; see [`firmware/README.md`](../firmware/README.md#prototyping-on-an-esp32-devkit-v1). Other ESP32-C3/S3 boards work too: set the pins under `idf.py menuconfig → SAR Beepers → Pins`, give the build a new **Board ID** so OTA never sends it another board's image, and run `idf.py set-target esp32s3` for an S3.
 
 | Function | XIAO pin | GPIO | Notes |
 |---|---|---|---|

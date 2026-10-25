@@ -1,5 +1,5 @@
 /*
- * SAR Notifier pager firmware.
+ * SAR Beepers pager firmware.
  *
  * Boot -> (no Wi-Fi settings, or button held 5s) -> setup portal (portal.c)
  *      -> join Wi-Fi -> register over HTTPS -> MQTT link -> wait for pages.
@@ -307,7 +307,7 @@ static void tick(void)
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "SAR Notifier %s for %s", esp_app_get_description()->version, BOARD_TAG + strlen("SAR_BOARD="));
+    ESP_LOGI(TAG, "SAR Beepers %s for %s", esp_app_get_description()->version, BOARD_TAG + strlen("SAR_BOARD="));
     s_queue = xQueueCreate(16, sizeof(app_event_t));
 
     ESP_ERROR_CHECK(settings_init());

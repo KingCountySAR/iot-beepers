@@ -46,7 +46,7 @@ export function App() {
   return (
     <AuthContext.Provider value={{ user, setUser }}>
       <header className="topbar">
-        <strong className="brand">SAR Notifier</strong>
+        <strong className="brand">SAR Beepers</strong>
         <nav>
           <NavLink to="/" end>
             {user.isAdmin ? 'Devices' : 'My pagers'}

@@ -1,4 +1,4 @@
-# SAR Notifier
+# SAR Beepers
 
 A dedicated, loud pager for SAR callouts. It's a cheap ESP32 box on the member's home Wi-Fi with a buzzer alarm, status and alert LEDs, a button and an arm/quiet switch. The central server forwards pages to it, tracks who received and acknowledged them, monitors device health, and pushes firmware updates.
 

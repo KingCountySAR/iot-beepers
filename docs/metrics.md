@@ -8,14 +8,14 @@ The server serves `GET /metrics` on its own port, `METRICS_PORT` (default 4101; 
 ```yaml
 # prometheus.yml
 scrape_configs:
-  - job_name: sar-notifier
+  - job_name: sar-beepers
     authorization:
       credentials: <METRICS_TOKEN>   # omit if unset
     static_configs:
       - targets: ['10.0.0.4:4101']
 
 rule_files:
-  - sar-notifier.rules.yml           # deploy/prometheus/sar-notifier.rules.yml
+  - sar-beepers.rules.yml           # deploy/prometheus/sar-beepers.rules.yml
 ```
 
 ## What's exported
@@ -72,4 +72,4 @@ HTTP request metrics come from Caddy, whose `metrics` option exports them.
 | Reboots | `resets(sar_device_uptime_seconds[1d])` |
 
 ## Alerts
-[`deploy/prometheus/sar-notifier.rules.yml`](../deploy/prometheus/sar-notifier.rules.yml) has a starting set: the server is down, a paired pager has been offline for 30 minutes, more than half of the paired pagers are offline, a firmware rollback, and repeated login failures.
+[`deploy/prometheus/sar-beepers.rules.yml`](../deploy/prometheus/sar-beepers.rules.yml) has a starting set: the server is down, a paired pager has been offline for 30 minutes, more than half of the paired pagers are offline, a firmware rollback, and repeated login failures.

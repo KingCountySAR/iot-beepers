@@ -124,9 +124,9 @@ export function FirmwarePage() {
       <form className="card stack" onSubmit={upload}>
         <h2>Upload a build</h2>
         <p className="muted">
-          Run <code>firmware/build.sh &lt;board&gt;</code> and upload <code>firmware/dist/sar-notifier-&lt;board&gt;-&lt;version&gt;.bin</code>.
+          Run <code>firmware/build.sh &lt;board&gt;</code> and upload <code>firmware/dist/sar-beepers-&lt;board&gt;-&lt;version&gt;.bin</code>.
           The board and version are read from the image. That merged image serves both OTA updates and the browser
-          flasher; a bare <code>sar-notifier.bin</code> is accepted too, for OTA only.
+          flasher; a bare <code>sar-beepers.bin</code> is accepted too, for OTA only.
         </p>
         <input type="file" accept=".bin" ref={fileRef} />
         <label>

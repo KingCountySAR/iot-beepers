@@ -1,5 +1,5 @@
 {
-  "name": "@sar-notifier/web",
+  "name": "@sar-beepers/web",
   "private": true,
   "type": "module",
   "scripts": {

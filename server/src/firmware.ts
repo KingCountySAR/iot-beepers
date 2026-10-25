@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 
 /** Must match PROJECT_NAME in firmware/CMakeLists.txt. */
-export const FIRMWARE_PROJECT = 'sar-notifier';
+export const FIRMWARE_PROJECT = 'sar-beepers';
 
 /** Marker the firmware embeds (app_main.c), followed by CONFIG_NOTIFIER_BOARD. */
 const BOARD_TAG = Buffer.from('SAR_BOARD=');

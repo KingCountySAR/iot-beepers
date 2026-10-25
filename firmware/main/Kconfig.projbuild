@@ -1,4 +1,4 @@
-menu "SAR Notifier"
+menu "SAR Beepers"
 
     config NOTIFIER_DEFAULT_SERVER_URL
         string "Default server URL"
