@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch --import tsx --env-file=dev.env --env-file-if-exists=.env --env-file-if-exists=.env.local src/index.ts",
-    "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/index.js",
+    "build": "node build.mjs",
+    "start": "node --enable-source-maps dist/beepers.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate"
@@ -28,6 +28,7 @@
     "@types/pg": "^8.23.1",
     "@types/ws": "^8.18.2",
     "drizzle-kit": "^0.31.11",
+    "esbuild": "^0.28.2",
     "mqtt": "^5.16.1",
     "tsx": "^4.23.15",
     "typescript": "^7.0.2",

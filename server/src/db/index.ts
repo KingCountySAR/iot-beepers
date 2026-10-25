@@ -11,14 +11,14 @@ export interface Database {
   close(): Promise<void>;
 }
 
-const migrationsFolder = fileURLToPath(new URL('../../drizzle', import.meta.url));
-
 /**
  * Production uses Postgres via DATABASE_URL. Without one we fall back to PGlite
  * (Postgres compiled to WASM) so dev and tests need no external database but
  * still run the exact same SQL and migrations.
  */
-export async function openDatabase(cfg: Pick<Config, 'DATABASE_URL' | 'PGLITE_DIR'>): Promise<Database> {
+export async function openDatabase(cfg: Pick<Config, 'DATABASE_URL' | 'PGLITE_DIR' | 'MIGRATIONS_DIR'>): Promise<Database> {
+  // The production bundle has no source tree around it to find them from, so it's given MIGRATIONS_DIR.
+  const migrationsFolder = cfg.MIGRATIONS_DIR ?? fileURLToPath(new URL('../../drizzle', import.meta.url));
   if (cfg.DATABASE_URL) {
     const { default: pg } = await import('pg');
     const { drizzle } = await import('drizzle-orm/node-postgres');

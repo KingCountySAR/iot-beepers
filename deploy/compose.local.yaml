@@ -1,0 +1,27 @@
+# The pager server in Docker on a dev machine, as on the VM but from this repo's build, on http://localhost:4100: the
+# same port as `npm run dev`, so stop that first. Needs `docker compose up` in ../vm (Hydra, Postgres and the kcsara
+# network), a beepers database in its postgres (once, in ../vm:
+# `docker compose exec postgres createdb -U postgres beepers`), then `npm run build` here, and from the repo:
+#   npm run docker -- up -d     (docker compose with this file and compose.yaml; npm run docker -- down stops it)
+# See "Running the build in Docker" in the README.
+services:
+  beepers:
+    # The settings npm run dev uses, then .env.docker.local (git-ignored) for what differs in Docker: the Hydra client
+    # of ../vm's local Hydra, and anything on localhost, which in a container is host.docker.internal. compose.yaml's
+    # environment (cedar and Hydra on the kcsara network) and this file's come after all of them.
+    env_file: !override
+      - ../server/dev.env
+      - { path: ../server/.env, required: false }
+      - { path: ../server/.env.local, required: false }
+      - { path: ../server/.env.docker.local, required: false }
+    environment:
+      PORT: 4100
+      # ../vm's local postgres, with its dev superuser.
+      DATABASE_URL: postgres://postgres:dev-only@postgres:5432/beepers
+    volumes: !override
+      - ../server/dist/beepers.mjs:/app/beepers.mjs:ro
+      - ../server/dist/beepers.mjs.map:/app/beepers.mjs.map:ro
+      - ../server/drizzle:/app/drizzle:ro
+      - ../web/dist:/app/web:ro
+    extra_hosts: ['host.docker.internal:host-gateway']
+    ports: ['4100:4100']

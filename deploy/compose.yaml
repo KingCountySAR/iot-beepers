@@ -1,0 +1,60 @@
+# The pager server on the KCSARA VM, as its own compose project (beepers) on the VM's kcsara network. `npm run build`,
+# then `node deploy.mjs app ../beepers` from the vm repo sends this folder and the build (app.json) to
+# /srv/kcsara/apps/beepers/current. See "Deploy" in the README, and "Apps" in the vm repo's README.
+# ../config/ is apps/beepers/config on the VM, kept between deploys:
+#   database.env   DATABASE_URL, for its database in the VM's shared postgres (node deploy.mjs database beepers)
+#   app.env        everything else (app.env.example)
+#   compose.env    optional: HOSTS, the host names on a VM other than the real one
+# Firmware images are in the database, so nothing else here needs keeping.
+# On a dev machine, compose.local.yaml beside this runs it in Docker instead.
+# The compose project, as app.json names the app (the VM checks they agree).
+name: beepers
+
+services:
+  beepers:
+    image: node:22-alpine
+    env_file: [../config/database.env, ../config/app.env]
+    environment:
+      NODE_ENV: production
+      PORT: 4100
+      # Prometheus's apps job collects it over the kcsara network (kcsara.metrics below); Caddy only proxies PORT.
+      METRICS_PORT: 4101
+      WEB_DIST: /app/web
+      MIGRATIONS_DIR: /app/drizzle
+      # Members' groups come from cedar, with a client_credentials token from Hydra, both straight over the kcsara
+      # network.
+      MEMBER_API_URL: http://cedar:3040/api/v1
+      MEMBER_API_TOKEN_URL: http://hydra:4444/oauth2/token
+    # Only the build: the bundle, its migrations and the web UI.
+    volumes:
+      - ./beepers.mjs:/app/beepers.mjs:ro
+      - ./beepers.mjs.map:/app/beepers.mjs.map:ro
+      - ./drizzle:/app/drizzle:ro
+      - ./dist:/app/web:ro
+    working_dir: /app
+    user: node
+    command: [node, --enable-source-maps, beepers.mjs]
+    labels:
+      caddy: ${HOSTS:-beepers.kingcountysar.org}
+      caddy.import: site
+      caddy.encode: gzip
+      caddy.reverse_proxy: '{{upstreams 4100}}'
+      # Pagers hold a WebSocket (/mqtt) open all the time, and Caddy reloads whenever any app's containers change: keep
+      # their connections for a while then, rather than dropping every pager at once.
+      caddy.reverse_proxy.stream_close_delay: 5m
+      kcsara.health: /healthz
+      kcsara.metrics: 4101/metrics
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:4100/healthz]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+    # Time to close the pagers' connections and the database cleanly (SIGTERM, then this, then SIGKILL).
+    stop_grace_period: 20s
+    restart: unless-stopped
+    init: true
+
+networks:
+  default:
+    name: kcsara
+    external: true

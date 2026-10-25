@@ -4,6 +4,7 @@ data/
 *.log
 .env
 .env.local
+.env.docker.local
 
 # ESP-IDF
 firmware/build/

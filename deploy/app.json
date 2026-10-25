@@ -1,0 +1,4 @@
+{
+  "name": "beepers",
+  "files": ["server/dist/beepers.mjs", "server/dist/beepers.mjs.map", "server/drizzle", "web/dist"]
+}

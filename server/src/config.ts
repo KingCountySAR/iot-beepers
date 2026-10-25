@@ -67,6 +67,8 @@ const Env = z.object({
   METRICS_TOKEN: z.string().optional(),
   /** Directory of the built web UI to serve. */
   WEB_DIST: z.string().default('../web/dist'),
+  /** Directory of the Drizzle migrations. Unset: server/drizzle, found from the source's own path. */
+  MIGRATIONS_DIR: z.string().optional(),
 });
 
 export type Config = z.infer<typeof Env>;

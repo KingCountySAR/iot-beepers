@@ -12,7 +12,8 @@
     "dev:web": "npm run dev --workspace web",
     "build": "npm run build --workspace web && npm run build --workspace server",
     "test": "npm test --workspace server",
-    "typecheck": "npm run typecheck --workspaces"
+    "typecheck": "npm run typecheck --workspaces",
+    "docker": "docker compose -f deploy/compose.yaml -f deploy/compose.local.yaml"
   },
   "devDependencies": {
     "concurrently": "^10.0.6"
